@@ -63,7 +63,7 @@ struct IncompatibleReturnTypeException
  *
  *  A class declaration collects objects of this kind to represent methods and their specific
  *  implementation.
- *  This class is implemented in various specific ways that bind the abstract call to a specifc
+ *  This class is implemented in various specific ways that bind the abstract call to a specific
  *  C++ method.
  */
 class GSI_PUBLIC MethodBase 
@@ -334,11 +334,23 @@ public:
   /**
    *  @brief Adds an argument to the argument list (of type X)
    */
-  template <class X> 
+  template <class X>
   void add_arg ()
   {
     ArgType a;
-    a.template init<X> ();
+    a.template init<X, arg_make_reference> ();
+    m_arg_types.push_back (a);
+    m_argsize += a.size ();
+  }
+
+  /**
+   *  @brief Adds an argument to the argument list (of type X)
+   */
+  template <class X, class Transfer>
+  void add_arg ()
+  {
+    ArgType a;
+    a.template init<X, Transfer> ();
     m_arg_types.push_back (a);
     m_argsize += a.size ();
   }
@@ -346,11 +358,23 @@ public:
   /**
    *  @brief Adds an argument to the argument list (of type X plus additional specs)
    */
-  template <class X> 
+  template <class X>
   void add_arg (const ArgSpecBase &spec) 
   {
     ArgType a;
-    a.template init<X> (spec);
+    a.template init<X, arg_make_reference> (spec);
+    m_arg_types.push_back (a);
+    m_argsize += a.size ();
+  }
+
+  /**
+   *  @brief Adds an argument to the argument list (of type X plus additional specs)
+   */
+  template <class X, class Transfer>
+  void add_arg (const ArgSpecBase &spec)
+  {
+    ArgType a;
+    a.template init<X, Transfer> (spec);
     m_arg_types.push_back (a);
     m_argsize += a.size ();
   }
@@ -358,11 +382,23 @@ public:
   /**
    *  @brief This version will take the ownership of the ArgSpecBase object
    */
-  template <class X> 
+  template <class X>
   void add_arg (ArgSpecBase *spec) 
   {
     ArgType a;
-    a.template init<X> (spec);
+    a.template init<X, arg_make_reference> (spec);
+    m_arg_types.push_back (a);
+    m_argsize += a.size ();
+  }
+
+  /**
+   *  @brief This version will take the ownership of the ArgSpecBase object
+   */
+  template <class X, class Transfer>
+  void add_arg (ArgSpecBase *spec)
+  {
+    ArgType a;
+    a.template init<X, Transfer> (spec);
     m_arg_types.push_back (a);
     m_argsize += a.size ();
   }
@@ -379,10 +415,19 @@ public:
   /**
    *  @brief Sets the return type to "X"
    */
-  template <class X> 
+  template <class X>
   void set_return () 
   {
-    m_ret_type.template init<X> ();
+    m_ret_type.template init<X, arg_default_return_value_preference> ();
+  }
+
+  /**
+   *  @brief Sets the return type to "X"
+   */
+  template <class X, class Transfer>
+  void set_return ()
+  {
+    m_ret_type.template init<X, Transfer> ();
   }
 
   /**
@@ -391,7 +436,7 @@ public:
   template <class X> 
   void set_return_new () 
   {
-    m_ret_type.template init<X> (true);
+    m_ret_type.template init<X, arg_pass_ownership> ();
   }
 
   /**
@@ -567,7 +612,7 @@ private:
 /**
  *  @brief A collection of methods
  *
- *  The basic purpose of this object is to provide the + operator that allows to concatenate 
+ *  The basic purpose of this object is to provide the + operator that allows concatenation
  *  method declarations in the class declaration.
  */
 class GSI_PUBLIC Methods
@@ -810,15 +855,48 @@ constant (const std::string &name, R (*m) (), const std::string &doc = std::stri
   return Methods (new ConstantGetter <R> (name, m, doc));
 }
 
-struct return_by_value
+/**
+ *  @brief A helper class to create a constant (a static method with "const" attribute, not taking any arguments)
+ *  This version creates a constant getter from a real constant value.
+ */
+template <class R>
+class ConstantValueGetter
+  : public StaticMethodBase
 {
-  typedef tl::False is_factory;
+public:
+  ConstantValueGetter (const std::string &name, const R &v, const std::string &doc)
+    : StaticMethodBase (name, doc, true), m_v (v)
+  {
+  }
+
+  void initialize ()
+  {
+    this->clear ();
+    //  Note: a constant must not return a reference to an existing object, hence "set_return_new":
+    this->template set_return_new<R> ();
+  }
+
+  virtual MethodBase *clone () const
+  {
+    return new ConstantValueGetter (*this);
+  }
+
+  virtual void call (void *, SerialArgs &, SerialArgs &ret) const
+  {
+    mark_called ();
+    ret.write<R> (m_v);
+  }
+
+private:
+  R m_v;
 };
 
-struct return_new_object
+template <class R>
+Methods
+constant (const std::string &name, const R &v, const std::string &doc = std::string ())
 {
-  typedef tl::True is_factory;
-};
+  return Methods (new ConstantValueGetter <R> (name, v, doc));
+}
 
 // 0 argument
 

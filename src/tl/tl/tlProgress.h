@@ -29,6 +29,7 @@
 #include <string>
 #include "tlException.h"
 #include "tlTimer.h"
+#include "tlList.h"
 
 class QWidget;
 
@@ -91,7 +92,7 @@ class Progress;
  *  This class also allows for some kind of background processing:
  *  once the test() method is called, the 
  *  adaptor's yield() method is called once that "yield_interval" 
- *  calls have passed. The yield_interval value should be choosen
+ *  calls have passed. The yield_interval value should be chosen
  *  sufficiently large so that no performance penalty is to be paid
  *  for this. In addition, each test() call tests whether
  *  the operation may have been cancelled and may throw an 
@@ -105,6 +106,7 @@ class Progress;
  */
 
 class TL_PUBLIC Progress
+  : public tl::list_node<Progress>
 {
 public:
   /**
@@ -203,6 +205,16 @@ protected:
    */
   void test (bool force_yield = false);
 
+  /**
+   *  @brief This method needs to be called by all derived classes after initialization has happened
+   */
+  void initialize ();
+
+  /**
+   *  @brief This method needs to be called by all derived classes in the destructor
+   */
+  void shutdown ();
+
 private:
   friend class ProgressAdaptor;
 
@@ -240,6 +252,11 @@ public:
    *  @param yield_interval See above.
    */
   RelativeProgress (const std::string &desc, size_t max_count = 0, size_t yield_interval = 1000);
+
+  /**
+   *  @brief Destructor
+   */
+  ~RelativeProgress ();
 
   /**
    *  @brief Delivers the current progress as a string
@@ -283,6 +300,7 @@ private:
 
   std::string m_format;
   size_t m_count;
+  size_t m_last_count;
   double m_unit;
 };
 
@@ -308,6 +326,11 @@ public:
    *  @param yield_interval See above.
    */
   AbsoluteProgress (const std::string &desc, size_t yield_interval = 1000);
+
+  /**
+   *  @brief Destructor
+   */
+  ~AbsoluteProgress ();
 
   /**
    *  @brief Delivers the current progress as a string
@@ -348,7 +371,7 @@ public:
   /**
    *  @brief Set the format unit
    *
-   *  This is the unit used for formatted output. This allows to separate the format value
+   *  This is the unit used for formatted output. This allows separating the format value
    *  from the bar value which is percent.
    */
   void set_format_unit (double unit)

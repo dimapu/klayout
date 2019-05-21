@@ -26,6 +26,7 @@
 #include "tlTimer.h"
 #include "tlProgress.h"
 #include "tlExpression.h"
+#include "tlGlobPattern.h"
 
 // ----------------------------------------------------------------
 //  Logger binding
@@ -128,7 +129,7 @@ Class<Logger> decl_Logger ("tl", "Logger",
   ),
   "@brief A logger\n"
   "\n"
-  "The logger allows to output messages to the log channels. If the log viewer is open, the "
+  "The logger outputs messages to the log channels. If the log viewer is open, the "
   "log messages will be shown in the logger view. Otherwise they will be printed to the terminal "
   "on Linux for example.\n"
   "\n"
@@ -152,7 +153,7 @@ namespace gsi
 
 static std::string timer_to_s (const tl::Timer *timer)
 {
-  return tl::sprintf ("%.12gs (user), %.12gs (kernel)", timer->sec_user (), timer->sec_sys ());
+  return tl::sprintf ("%.12gs (sys), %.12gs (user), %.12gs (wall)", timer->sec_sys (), timer->sec_user (), timer->sec_wall ());
 }
 
 Class<tl::Timer> decl_Timer ("tl", "Timer",
@@ -162,7 +163,11 @@ Class<tl::Timer> decl_Timer ("tl", "Timer",
   gsi::method ("sys", &tl::Timer::sec_sys, 
     "@brief Returns the elapsed CPU time in kernel mode from start to stop in seconds\n"
   ) +
-  gsi::method_ext ("to_s", &timer_to_s, 
+  gsi::method ("wall", &tl::Timer::sec_wall,
+    "@brief Returns the elapsed real time from start to stop in seconds\n"
+    "This method has been introduced in version 0.26."
+  ) +
+  gsi::method_ext ("to_s", &timer_to_s,
     "@brief Produces a string with the currently elapsed times\n"
   ) +
   gsi::method ("start", &tl::Timer::start, 
@@ -234,7 +239,7 @@ Class<tl::Progress> decl_Progress ("tl", "Progress",
   "@brief A progress reporter\n"
   "\n"
   "This is the base class for all progress reporter objects. Progress reporter objects are used "
-  "to report the progress of some operation and to allow to abort an operation. "
+  "to report the progress of some operation and to allow aborting an operation. "
   "Progress reporter objects must be triggered periodically, i.e. a value must be set. "
   "On the display side, a progress bar usually is used to represent the progress of an operation.\n"
   "\n"
@@ -296,7 +301,7 @@ Class<tl::RelativeProgress> decl_RelativeProgress (decl_Progress, "tl", "Relativ
     "@brief Sets the progress value\n"
     "@args value, force_yield\n"
     "\n"
-    "This method is equivalent to \\value=, but it allows to force the event loop to be triggered.\n"
+    "This method is equivalent to \\value=, but it allows forcing the event loop to be triggered.\n"
     "If \"force_yield\" is true, the event loop will be triggered always, irregardless of the yield interval specified in the constructor.\n"
   ),
   "@brief A progress reporter counting progress in relative units\n"
@@ -390,7 +395,7 @@ Class<tl::AbsoluteProgress> decl_AbsoluteProgress (decl_Progress, "tl", "Absolut
     "@brief Sets the progress value\n"
     "@args value, force_yield\n"
     "\n"
-    "This method is equivalent to \\value=, but it allows to force the event loop to be triggered.\n"
+    "This method is equivalent to \\value=, but it allows forcing the event loop to be triggered.\n"
     "If \"force_yield\" is true, the event loop will be triggered always, irregardless of the yield interval specified in the constructor.\n"
   ),
   "@brief A progress reporter counting progress in absolute units\n"
@@ -553,6 +558,85 @@ Class<ExpressionWrapper> decl_ExpressionWrapper ("tl", "Expression",
   "This class has been introduced in version 0.25.\n"
 );
 
+
+static tl::GlobPattern *new_glob_pattern (const std::string &s)
+{
+  return new tl::GlobPattern (s);
 }
 
+namespace {
 
+template <class Iter>
+struct to_var_iterator
+  : public Iter
+{
+  typedef typename Iter::value_type original_value_type;
+  typedef typename tl::Variant *pointer;
+  typedef typename tl::Variant &reference;
+  typedef typename Iter::difference_type difference_type;
+
+  to_var_iterator (const Iter &iter)
+    : Iter (iter)
+  { }
+
+  pointer operator-> ()
+  {
+    m_var = tl::Variant (Iter::operator* ());
+    return &m_var;
+  }
+
+  reference operator* ()
+  {
+    m_var = tl::Variant (Iter::operator* ());
+    return m_var;
+  }
+
+private:
+  tl::Variant m_var;
+};
+
+}
+
+static tl::Variant match (const tl::GlobPattern *pattern, const std::string &s)
+{
+  std::vector<std::string> brackets;
+  if (pattern->match (s, brackets)) {
+    return tl::Variant (to_var_iterator<std::vector<std::string>::const_iterator> (brackets.begin ()), to_var_iterator<std::vector<std::string>::const_iterator> (brackets.end ()));
+  } else {
+    return tl::Variant ();
+  }
+}
+
+Class<tl::GlobPattern> decl_GlobPattern ("tl", "GlobPattern",
+  gsi::constructor ("new", &new_glob_pattern, gsi::arg ("pattern"),
+    "@brief Creates a new glob pattern match object\n"
+  ) +
+  gsi::method ("case_sensitive=", &tl::GlobPattern::set_case_sensitive, gsi::arg ("case_sensitive"),
+    "@brief Sets a value indicating whether the glob pattern match is case sensitive."
+  ) +
+  gsi::method ("case_sensitive", &tl::GlobPattern::case_sensitive,
+    "@brief Gets a value indicating whether the glob pattern match is case sensitive."
+  ) +
+  gsi::method ("head_match=", &tl::GlobPattern::set_header_match, gsi::arg ("head_match"),
+    "@brief Sets a value indicating whether trailing characters are allowed.\n"
+    "If this predicate is false, the glob pattern needs to match the full subject string. "
+    "If true, the match function will ignore trailing characters and return true if the "
+    "front part of the subject string matches."
+  ) +
+  gsi::method ("head_match", &tl::GlobPattern::header_match,
+    "@brief Gets a value indicating whether trailing characters are allowed.\n"
+  ) +
+  gsi::method_ext ("match", &match, gsi::arg ("subject"),
+    "@brief Matches the subject string against the pattern.\n"
+    "Returns nil if the subject string does not match the pattern. Otherwise returns a list "
+    "with the substrings captured in round brackets."
+  ),
+  "@brief A glob pattern matcher\n"
+  "This class is provided to make KLayout's glob pattern matching available to scripts too. "
+  "The intention is to provide an implementation which is compatible with KLayout's pattern "
+  "syntax.\n"
+  "\n"
+  "This class has been introduced in version 0.26."
+);
+
+}

@@ -39,7 +39,6 @@ SOURCES = \
   dbPolygon.cc \
   dbPolygonTools.cc \
   dbPropertiesRepository.cc \
-  dbRecursiveShapeIterator.cc \
   dbRegion.cc \
   dbShapeArray.cc \
   dbShape.cc \
@@ -53,7 +52,26 @@ SOURCES = \
   dbWriterTools.cc \
     dbVariableWidthPath.cc \
     dbLoadLayoutOptionsTests.cc \
-    dbSaveLayoutOptionsTests.cc
+    dbSaveLayoutOptionsTests.cc \
+    dbHierarchyBuilderTests.cc \
+    dbRecursiveShapeIteratorTests.cc \
+    dbHierProcessorTests.cc \
+    dbDeepRegionTests.cc \
+    dbDeepShapeStoreTests.cc \
+    dbHierNetworkProcessorTests.cc \
+    dbNetlistTests.cc \
+    dbNetlistExtractorTests.cc \
+    dbNetlistDeviceExtractorTests.cc \
+    dbNetlistDeviceClassesTests.cc \
+    dbLayoutToNetlistTests.cc \
+    dbLayoutToNetlistWriterTests.cc \
+    dbLayoutToNetlistReaderTests.cc \
+    dbNetlistWriterTests.cc \
+    dbCellVariantsTests.cc \
+    dbDeepEdgesTests.cc \
+    dbDeepEdgePairsTests.cc \
+    dbNetlistCompareTests.cc \
+    dbNetlistReaderTests.cc
 
 INCLUDEPATH += $$TL_INC $$DB_INC $$GSI_INC
 DEPENDPATH += $$TL_INC $$DB_INC $$GSI_INC

@@ -670,6 +670,13 @@ public:
   bool test (const char *token);
 
   /**
+   *  @brief Test for a token (a certain string) in case-insensitive mode
+   *
+   *  If the token is not present, return false.
+   */
+  bool test_without_case (const char *token);
+
+  /**
    *  @brief Skip blanks
    *
    *  A helper method to implement parsers on the chararacter-by-character basis.
@@ -723,7 +730,7 @@ public:
   /**
    *  @brief Some syntactic sugar
    *
-   *  Allows to extract something this way: extractor >> x;
+   *  Allows extracting something this way: extractor >> x;
    */
   template <class X>
   Extractor &operator>> (X &x) 

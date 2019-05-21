@@ -28,6 +28,8 @@
 #include "dbCell.h"
 #include "dbCellInst.h"
 #include "dbLayoutDiff.h"
+#include "dbNetlist.h"
+#include "dbNetlistCompare.h"
 
 #include "tlUnitTest.h"
 #include "tlFileUtils.h"
@@ -50,15 +52,22 @@ void compare_layouts (tl::TestBase *_this, const db::Layout &layout, const std::
     hash = (hash << 4) ^ (hash >> 4) ^ ((unsigned int) *cp);
   }
 
+  const db::Layout *subject = 0;
+  db::Layout layout2;
+
   std::string tmp_file;
   db::SaveLayoutOptions options;
 
   if (norm == WriteGDS2) {
     tmp_file = _this->tmp_file (tl::sprintf ("tmp_%x.gds", hash));
     options.set_format ("GDS2");
-  } else {
+  } else if (norm == WriteOAS) {
     tmp_file = _this->tmp_file (tl::sprintf ("tmp_%x.oas", hash));
     options.set_format ("OASIS");
+  } else {
+    //  write the temp file in the same format than the au file
+    tmp_file = _this->tmp_file (tl::sprintf ("tmp_%x." + tl::extension (au_file), hash));
+    options.set_format_from_filename (tmp_file);
   }
 
   {
@@ -67,10 +76,7 @@ void compare_layouts (tl::TestBase *_this, const db::Layout &layout, const std::
     writer.write (const_cast<db::Layout &> (layout), stream);
   }
 
-  const db::Layout *subject = 0;
-  db::Layout layout2;
-
-  if (norm != NoNormalization) {
+  if (norm == WriteGDS2 || norm == WriteOAS) {
 
     //  read all layers from the original layout, so the layer table is the same
     for (db::Layout::layer_iterator l = layout.begin_layers (); l != layout.end_layers (); ++l) {
@@ -121,7 +127,12 @@ void compare_layouts (tl::TestBase *_this, const db::Layout &layout, const std::
       db::Reader reader (stream);
       reader.read (layout_au, options);
 
-      equal = db::compare_layouts (*subject, layout_au, (n > 0 ? db::layout_diff::f_silent : db::layout_diff::f_verbose) | db::layout_diff::f_flatten_array_insts /*| db::layout_diff::f_no_text_details | db::layout_diff::f_no_text_orientation*/, tolerance, 100 /*max diff lines*/);
+      equal = db::compare_layouts (*subject, layout_au,
+                                     (n > 0 ? db::layout_diff::f_silent : db::layout_diff::f_verbose)
+                                     | (norm == AsPolygons ? db::layout_diff::f_boxes_as_polygons + db::layout_diff::f_paths_as_polygons : 0)
+                                     | db::layout_diff::f_flatten_array_insts
+                                   /*| db::layout_diff::f_no_text_details | db::layout_diff::f_no_text_orientation*/
+                                   , tolerance, 100 /*max diff lines*/);
       if (equal && n > 0) {
         tl::info << tl::sprintf ("Found match on golden reference variant %s", fn);
       }
@@ -142,5 +153,176 @@ void compare_layouts (tl::TestBase *_this, const db::Layout &layout, const std::
                                (n > 1 ? "\nand variants" : "")));
   }
 }
+
+class CompareLogger
+  : public db::NetlistCompareLogger
+{
+public:
+  CompareLogger ()
+    : m_new_circuit (true) { }
+
+  void out (const std::string &text)
+  {
+    if (m_new_circuit) {
+      tl::info << m_circuit;
+      m_new_circuit = false;
+    }
+    tl::info << text;
+  }
+
+  virtual void begin_netlist (const db::Netlist * /*a*/, const db::Netlist * /*b*/)
+  {
+    tl::info << "Comparing netlists:";
+  }
+
+  virtual void end_netlist (const db::Netlist * /*a*/, const db::Netlist * /*b*/)
+  {
+    tl::info << "End of difference log.";
+  }
+
+  virtual void begin_circuit (const db::Circuit *a, const db::Circuit *b)
+  {
+    m_new_circuit = true;
+    m_circuit = circuit2str (a) + " vs. " + circuit2str (b);
+  }
+
+  virtual void device_class_mismatch (const db::DeviceClass *a, const db::DeviceClass *b)
+  {
+    out ("device_class_mismatch " + device_class2str (a) + " " + device_class2str (b));
+  }
+
+  virtual void circuit_skipped (const db::Circuit *a, const db::Circuit *b)
+  {
+    out ("circuit_skipped " + circuit2str (a) + " " + circuit2str (b));
+  }
+
+  virtual void circuit_mismatch (const db::Circuit *a, const db::Circuit *b)
+  {
+    out ("circuit_mismatch " + circuit2str (a) + " " + circuit2str (b));
+  }
+
+  virtual void match_nets (const db::Net *a, const db::Net *b)
+  {
+    out ("match_nets " + net2str (a) + " " + net2str (b));
+  }
+
+  virtual void match_ambiguous_nets (const db::Net *a, const db::Net *b)
+  {
+    out ("match_ambiguous_nets " + net2str (a) + " " + net2str (b));
+  }
+
+  virtual void net_mismatch (const db::Net *a, const db::Net *b)
+  {
+    out ("net_mismatch " + net2str (a) + " " + net2str (b));
+  }
+
+  virtual void match_devices (const db::Device *a, const db::Device *b)
+  {
+    out ("match_devices " + device2str (a) + " " + device2str (b));
+  }
+
+  virtual void device_mismatch (const db::Device *a, const db::Device *b)
+  {
+    out ("device_mismatch " + device2str (a) + " " + device2str (b));
+  }
+
+  virtual void match_devices_with_different_parameters (const db::Device *a, const db::Device *b)
+  {
+    out ("match_devices_with_different_parameters " + device2str (a) + " " + device2str (b));
+  }
+
+  virtual void match_devices_with_different_device_classes (const db::Device *a, const db::Device *b)
+  {
+    out ("match_devices_with_different_device_classes " + device2str (a) + " " + device2str (b));
+  }
+
+  virtual void match_pins (const db::Pin *a, const db::Pin *b)
+  {
+    out ("match_pins " + pin2str (a) + " " + pin2str (b));
+  }
+
+  virtual void pin_mismatch (const db::Pin *a, const db::Pin *b)
+  {
+    out ("pin_mismatch " + pin2str (a) + " " + pin2str (b));
+  }
+
+  virtual void match_subcircuits (const db::SubCircuit *a, const db::SubCircuit *b)
+  {
+    out ("match_subcircuits " + subcircuit2str (a) + " " + subcircuit2str (b));
+  }
+
+  virtual void subcircuit_mismatch (const db::SubCircuit *a, const db::SubCircuit *b)
+  {
+    out ("subcircuit_mismatch " + subcircuit2str (a) + " " + subcircuit2str (b));
+  }
+
+private:
+  bool m_new_circuit;
+  std::string m_circuit;
+
+  std::string device_class2str (const db::DeviceClass *x) const
+  {
+    return x ? x->name () : "(null)";
+  }
+
+  std::string circuit2str (const db::Circuit *x) const
+  {
+    return x ? x->name () : "(null)";
+  }
+
+  std::string device2str (const db::Device *x) const
+  {
+    return x ? x->expanded_name () : "(null)";
+  }
+
+  std::string net2str (const db::Net *x) const
+  {
+    return x ? x->expanded_name () : "(null)";
+  }
+
+  std::string pin2str (const db::Pin *x) const
+  {
+    return x ? x->expanded_name () : "(null)";
+  }
+
+  std::string subcircuit2str (const db::SubCircuit *x) const
+  {
+    return x ? x->expanded_name () : "(null)";
+  }
+};
+
+void DB_PUBLIC compare_netlist (tl::TestBase *_this, const db::Netlist &netlist, const std::string &au_nl_string)
+{
+  db::Netlist au_nl;
+  for (db::Netlist::const_device_class_iterator d = netlist.begin_device_classes (); d != netlist.end_device_classes (); ++d) {
+    au_nl.add_device_class (d->clone ());
+  }
+
+  au_nl.from_string (au_nl_string);
+
+  db::NetlistComparer comp (0);
+
+  if (! comp.compare (&netlist, &au_nl)) {
+    _this->raise ("Compare failed - see log for details.\n\nActual:\n" + netlist.to_string () + "\nGolden:\n" + au_nl_string);
+    //  Compare once again - this time with logger
+    CompareLogger logger;
+    db::NetlistComparer comp (&logger);
+    comp.compare (&netlist, &au_nl);
+  }
+}
+
+void DB_PUBLIC compare_netlist (tl::TestBase *_this, const db::Netlist &netlist, const db::Netlist &netlist_au)
+{
+  db::NetlistComparer comp (0);
+
+  if (! comp.compare (&netlist, &netlist_au)) {
+    _this->raise ("Compare failed - see log for details.\n\nActual:\n" + netlist.to_string () + "\nGolden:\n" + netlist_au.to_string ());
+    //  Compare once again - this time with logger
+    CompareLogger logger;
+    db::NetlistComparer comp (&logger);
+    comp.compare (&netlist, &netlist_au);
+  }
+}
+
 
 }

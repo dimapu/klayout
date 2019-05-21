@@ -53,7 +53,7 @@ public:
   typedef db::coord_traits<C> coord_traits;
   typedef typename coord_traits::distance_type distance_type; 
   typedef typename coord_traits::area_type area_type; 
-  typedef db::object_tag< edge<C> > tag;
+  typedef db::object_tag< edge_pair<C> > tag;
 
   /**
    *  @brief The default constructor.
@@ -87,6 +87,24 @@ public:
     : m_first (e.first ()), m_second (e.second ())
   {
     //  .. nothing else ..
+  }
+
+  /**
+   *  @brief The (dummy) translation operator
+   */
+  void translate (const edge_pair<C> &d, db::generic_repository<C> &, db::ArrayRepository &)
+  {
+    *this = d;
+  }
+
+  /**
+   *  @brief The (dummy) translation operator
+   */
+  template <class T>
+  void translate (const edge_pair<C> &d, const T &t, db::generic_repository<C> &, db::ArrayRepository &)
+  {
+    *this = d;
+    transform (t);
   }
 
   /**
@@ -288,7 +306,7 @@ public:
    *  @brief Conversion to a string.
    *
    *  If dbu is set, it determines the factor by which the coordinates are multiplied to render
-   *  micron units. In addition, a micron format is choosen for output of these coordinates.
+   *  micron units. In addition, a micron format is chosen for output of these coordinates.
    */
   std::string to_string (double dbu) const
   {

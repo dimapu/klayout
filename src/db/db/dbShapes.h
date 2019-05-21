@@ -53,7 +53,7 @@ class ArrayRepository;
  *  @brief A generic shape iterator
  *
  *  This iterator can iterate any kind of shape from a "shapes" container.
- *  It allows to select certain kind of shapes. The dereferecing operator
+ *  It allows selecting certain kind of shapes. The dereferecing operator
  *  returns a shape proxy object that can be used to access the actual shape.
  *  It can iterator over all shapes and over a region selected.
  *  If the iterator is constructed, it always points to the beginning of the 
@@ -83,6 +83,7 @@ public:
   typedef db::array<path_ptr_type, disp_type> path_ptr_array_type;
   typedef path_ptr_array_type::iterator path_ptr_array_iterator_type;
   typedef db::edge<coord_type> edge_type;
+  typedef db::edge_pair<coord_type> edge_pair_type;
   typedef db::text<coord_type> text_type;
   typedef db::text_ref<text_type, disp_type> text_ref_type;
   typedef db::text_ref<text_type, unit_trans_type> text_ptr_type;
@@ -126,18 +127,19 @@ public:
     SimplePolygonRef       = 4,
     SimplePolygonPtrArray  = 5,
     Edge                   = 6,
-    Path                   = 7,
-    PathRef                = 8,
-    PathPtrArray           = 9,
-    Box                    = 10,
-    BoxArray               = 11,
-    ShortBox               = 12,
-    ShortBoxArray          = 13,
-    Text                   = 14,
-    TextRef                = 15,
-    TextPtrArray           = 16,
-    UserObject             = 17,
-    Null                   = 18 //  must be last!
+    EdgePair               = 7,
+    Path                   = 8,
+    PathRef                = 9,
+    PathPtrArray           = 10,
+    Box                    = 11,
+    BoxArray               = 12,
+    ShortBox               = 13,
+    ShortBoxArray          = 14,
+    Text                   = 15,
+    TextRef                = 16,
+    TextPtrArray           = 17,
+    UserObject             = 18,
+    Null                   = 19 //  must be last!
   };
 
   enum flags_type 
@@ -151,7 +153,8 @@ public:
                       | (1 << SimplePolygonRef) 
                       | (1 << SimplePolygonPtrArray),
     Edges             = (1 << Edge),
-    Paths             = (1 << Path) 
+    EdgePairs         = (1 << EdgePair),
+    Paths             = (1 << Path)
                       | (1 << PathRef) 
                       | (1 << PathPtrArray),
     Boxes             = (1 << Box)
@@ -205,7 +208,7 @@ public:
    *  @param box The region to select
    *  @param mode See above
    *  @param flags The kind of shapes to iterate over (or-ed constants of flags_type)
-   *  @param prop_sel The propery selection
+   *  @param prop_sel The property selection
    *  @param inv_prop_sel True, if shapes not matching the property selection shall be reported
    */
   ShapeIterator (const shapes_type &shapes, const box_type &box, region_mode mode, unsigned int flags = All, const property_selector *prop_sel = 0, bool inv_prop_sel = false);
@@ -352,14 +355,15 @@ private:
     char sz8  [sizeof (per_shape_iter_size <path_ref_type>)];
     char sz9  [sizeof (per_shape_iter_size <path_ptr_array_type>)];
     char sz10 [sizeof (per_shape_iter_size <edge_type>)];
-    char sz11 [sizeof (per_shape_iter_size <box_type>)];
-    char sz12 [sizeof (per_shape_iter_size <box_array_type>)];
-    char sz13 [sizeof (per_shape_iter_size <short_box_type>)];
-    char sz14 [sizeof (per_shape_iter_size <short_box_array_type>)];
-    char sz15 [sizeof (per_shape_iter_size <text_type>)];
-    char sz16 [sizeof (per_shape_iter_size <text_ref_type>)];
-    char sz17 [sizeof (per_shape_iter_size <text_ptr_array_type>)];
-    char sz18 [sizeof (per_shape_iter_size <user_object_type>)];
+    char sz11 [sizeof (per_shape_iter_size <edge_pair_type>)];
+    char sz12 [sizeof (per_shape_iter_size <box_type>)];
+    char sz13 [sizeof (per_shape_iter_size <box_array_type>)];
+    char sz14 [sizeof (per_shape_iter_size <short_box_type>)];
+    char sz15 [sizeof (per_shape_iter_size <short_box_array_type>)];
+    char sz16 [sizeof (per_shape_iter_size <text_type>)];
+    char sz17 [sizeof (per_shape_iter_size <text_ref_type>)];
+    char sz18 [sizeof (per_shape_iter_size <text_ptr_array_type>)];
+    char sz19 [sizeof (per_shape_iter_size <user_object_type>)];
   };
 
   //  this union is simply there to determine the maximum size required for all
@@ -510,7 +514,7 @@ public:
    *  @brief Default ctor: create an empty collection of shapes without external references
    *
    *  Such shape containers can be used for example to store temporary shape sets
-   *  This version allows to specify whether the container should be created in editable mode 
+   *  This version allows one to specify whether the container should be created in editable mode
    *  or insert-once mode.
    */
   Shapes (bool editable)
@@ -603,7 +607,7 @@ public:
   /**
    *  @brief Assignment operator with transformation and property id mapping
    *
-   *  This version allows to specify a property mapping function. That way, shapes can be copied from
+   *  This version allows one to specify a property mapping function. That way, shapes can be copied from
    *  one layout space to another.
    */
   template <class T, class PropIdMap>
@@ -616,7 +620,7 @@ public:
   /**
    *  @brief Assignment operator with property id mapping
    *
-   *  In contrast to the operator= version allows to specify a property mapping function. That way, shapes can be copied from
+   *  In contrast to the operator= version allows one to specify a property mapping function. That way, shapes can be copied from
    *  one layout space to another.
    */
   template <class PropIdMap>
@@ -672,7 +676,7 @@ public:
    *
    *  This method insert all shapes from the given shape container using the specified transformation.
    *
-   *  This version allows to specify a property mapping function. That way, shapes can be copied from
+   *  This version allows one to specify a property mapping function. That way, shapes can be copied from
    *  one layout space to another.
    */
   template <class T, class PropIdMap>
@@ -711,7 +715,7 @@ public:
    *
    *  This method insert all shapes from the given shape container using the specified transformation.
    *
-   *  In contrast to the operator= version allows to specify a property mapping function. That way, shapes can be copied from
+   *  In contrast to the operator= version allows one to specify a property mapping function. That way, shapes can be copied from
    *  one layout space to another.
    */
   template <class PropIdMap>

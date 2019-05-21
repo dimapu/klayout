@@ -379,24 +379,10 @@ TextProgressDelegate::TextProgressDelegate (MainWindow *mw, int verbosity)
   //  .. nothing yet ..
 }
 
-void TextProgressDelegate::set_progress_can_cancel (bool f)
+void TextProgressDelegate::update_progress (tl::Progress *progress)
 {
-  if (!mp_mw->set_progress_can_cancel (f)) {
-    lay::TextProgress::set_progress_can_cancel (f);
-  }
-}
-
-void TextProgressDelegate::set_progress_text (const std::string &text)
-{
-  if (!mp_mw->set_progress_text (text)) {
-    lay::TextProgress::set_progress_text (text);
-  }
-}
-
-void TextProgressDelegate::set_progress_value (double v, const std::string &value)
-{
-  if (!mp_mw->set_progress_value (v, value)) {
-    lay::TextProgress::set_progress_value (v, value);
+  if (!mp_mw->update_progress (progress)) {
+    lay::TextProgress::update_progress (progress);
   }
 }
 
@@ -703,6 +689,14 @@ MainWindow::MainWindow (QApplication *app, lay::Plugin *plugin_parent, const cha
 
 MainWindow::~MainWindow ()
 {
+  //  avoid deferred execution later on where there isn't a valid main window anymore
+  //  (problem case: showing a dialog inside main windows's destroyed signal - this will
+  //  process events and trigger execution if not disabled)
+  if (! tl::DeferredMethodScheduler::instance ()->is_disabled ()) {
+    tl::DeferredMethodScheduler::instance ()->execute ();
+  }
+  tl::DeferredMethodScheduler::instance ()->enable (false);
+
   lay::register_help_handler (0, 0);
 
   //  since the configuration actions unregister themselves, we need to do this before the main
@@ -2066,7 +2060,7 @@ MainWindow::cm_print ()
       text_rect.setBottom (text_rect.bottom () - hh / 2);
       text_rect.setTop (text_rect.top () + hh / 2);
 
-      QImage img = current_view ()->get_image_with_options (page_rect.width (), page_rect.height () - 4 * hh, 2, 1, 1.0 / 3.0, Qt::white, Qt::black, Qt::black, db::DBox (), false);
+      QImage img = current_view ()->get_image_with_options (page_rect.width (), page_rect.height () - 4 * hh, 1, 1, 1.0 / 3.0, Qt::white, Qt::black, Qt::black, db::DBox (), false);
 
       painter.drawImage (QPoint (page_rect.left (), page_rect.top () + hh * 2), img);
       painter.setFont (header_font);
@@ -4642,42 +4636,27 @@ MainWindow::progress_get_widget () const
 }
 
 bool
-MainWindow::set_progress_can_cancel (bool f)
+MainWindow::update_progress (tl::Progress *progress)
 {
-  if (mp_progress_dialog) {
-    mp_progress_dialog->set_can_cancel (f);
-    return true;
-  } else if (isVisible () && mp_progress_widget) {
-    mp_progress_widget->set_can_cancel (f);
-    return true;
-  } else {
-    return false;
-  }
-}
+  bool can_cancel = progress->can_cancel ();
+  std::string text = progress->desc ();
+  std::string value = progress->formatted_value ();
+  double v = progress->value ();
 
-bool
-MainWindow::set_progress_text (const std::string &text)
-{
   if (mp_progress_dialog) {
+
+    mp_progress_dialog->set_can_cancel (can_cancel);
     mp_progress_dialog->set_text (text);
-    return true;
-  } else if (isVisible () && mp_progress_widget) {
-    mp_progress_widget->set_text (text);
-    return true;
-  } else {
-    return false;
-  }
-}
-
-bool
-MainWindow::set_progress_value (double v, const std::string &value)
-{
-  if (mp_progress_dialog) {
     mp_progress_dialog->set_value (v, value);
     return true;
+
   } else if (isVisible () && mp_progress_widget) {
+
+    mp_progress_widget->set_can_cancel (can_cancel);
+    mp_progress_widget->set_text (text);
     mp_progress_widget->set_value (v, value);
     return true;
+
   } else {
     return false;
   }

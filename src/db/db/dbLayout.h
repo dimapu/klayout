@@ -38,6 +38,9 @@
 #include "tlException.h"
 #include "tlVector.h"
 #include "tlString.h"
+#include "tlThreads.h"
+#include "tlObject.h"
+#include "tlUniqueId.h"
 #include "gsi.h"
 
 #include <cstring>
@@ -59,6 +62,9 @@ class Library;
 class LibraryProxy;
 class CellMapping;
 class LayerMapping;
+class Region;
+class Edges;
+class EdgePairs;
 
 template <class Coord> class generic_repository;
 typedef generic_repository<db::Coord> GenericRepository;
@@ -456,7 +462,9 @@ public:
 class DB_PUBLIC Layout 
   : public db::Object,
     public db::LayoutStateModel,
-    public gsi::ObjectBase
+    public gsi::ObjectBase,
+    public tl::Object,
+    public tl::UniqueId
 {
 public:
   typedef db::Box box_type;
@@ -504,7 +512,7 @@ public:
   Layout (db::Manager *manager = 0);
 
   /**
-   *  @brief Standard constructor which allows to specify the editable mode
+   *  @brief Standard constructor which allows one to specify editable mode
    */
   Layout (bool editable, db::Manager *manager = 0);
 
@@ -570,6 +578,15 @@ public:
   const PropertiesRepository &properties_repository () const
   {
     return m_properties_repository;
+  }
+
+  /**
+   *  @brief Gets the lock for the layout object
+   *  This is a generic lock that can be used to lock modifications against multiple threads.
+   */
+  tl::Mutex &lock ()
+  {
+    return m_lock;
   }
 
   /**
@@ -1079,6 +1096,33 @@ public:
   void flatten (db::Cell &cell, int levels, bool prune = false);
 
   /**
+   *  @brief Inserts a region (potentially hierarchical) into the given cell and layer
+   *
+   *  If the region is flat (conceptionally), it will be put into the cell.
+   *  If the region is hierarchical, a cell hierarchy will be built below the
+   *  given cell.
+   */
+  void insert (db::cell_index_type cell, int layer, const db::Region &region);
+
+  /**
+   *  @brief Inserts a edge collection (potentially hierarchical) into the given cell and layer
+   *
+   *  If the edge collection is flat (conceptionally), it will be put into the cell.
+   *  If the edge collection is hierarchical, a cell hierarchy will be built below the
+   *  given cell.
+   */
+  void insert (db::cell_index_type cell, int layer, const db::Edges &edges);
+
+  /**
+   *  @brief Inserts a edge pair collection (potentially hierarchical) into the given cell and layer
+   *
+   *  If the edge pair collection is flat (conceptionally), it will be put into the cell.
+   *  If the edge pair collection is hierarchical, a cell hierarchy will be built below the
+   *  given cell.
+   */
+  void insert (db::cell_index_type cell, int layer, const db::EdgePairs &edge_pairs);
+
+  /**
    *  @brief Delete a cell plus all subcells 
    *
    *  All subcells referenced directy or indirectly are deleted as well.
@@ -1389,7 +1433,7 @@ public:
    *  @brief Forces an update even if the layout is under construction
    *
    *  This method behaves like "update" but forces and update even if the 
-   *  "under_construction" state is active. This allows to do the update
+   *  "under_construction" state is active. This allows one to do the update
    *  in certain stages without triggering the update automatically and
    *  too frequently.
    */
@@ -1434,6 +1478,14 @@ public:
    *  @brief Insert a new layer with the given properties at the given index
    */
   void insert_layer (unsigned int index, const LayerProperties &props = LayerProperties ());
+
+  /**
+   *  @brief Gets or creates a layer with the given properties
+   *
+   *  If there already is a layer matching the given properties, it's index will be
+   *  returned. Otherwise a new layer with these properties is created.
+   */
+  unsigned int get_layer (const db::LayerProperties &props);
 
   /**
    *  @brief Insert a new special layer with the given properties
@@ -1630,6 +1682,7 @@ private:
   int m_waste_layer;
   bool m_editable;
   meta_info m_meta_info;
+  tl::Mutex m_lock;
 
   /**
    *  @brief Sort the cells topologically
