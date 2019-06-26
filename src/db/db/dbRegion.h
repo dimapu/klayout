@@ -28,6 +28,7 @@
 #include "dbRegionDelegate.h"
 #include "dbRecursiveShapeIterator.h"
 #include "dbPolygonGenerators.h"
+#include "dbCellVariants.h"
 
 #include "gsiObject.h"
 
@@ -39,250 +40,7 @@ class EdgeFilterBase;
 class FlatRegion;
 class EmptyRegion;
 class DeepShapeStore;
-
-/**
- *  @brief A base class for polygon filters
- */
-class DB_PUBLIC PolygonFilterBase
-{
-public:
-  PolygonFilterBase () { }
-  virtual ~PolygonFilterBase () { }
-
-  virtual bool selected (const db::Polygon &polgon) const = 0;
-};
-
-/**
- *  @brief A perimeter filter for use with Region::filter or Region::filtered
- *
- *  This filter has two parameters: pmin and pmax.
- *  It will filter all polygons for which the perimeter is >= pmin and < pmax.
- *  There is an "invert" flag which allows to select all polygons not
- *  matching the criterion.
- */
-
-struct DB_PUBLIC RegionPerimeterFilter
-  : public PolygonFilterBase
-{
-  typedef db::coord_traits<db::Coord>::perimeter_type perimeter_type;
-
-  /**
-   *  @brief Constructor 
-   *
-   *  @param amin The min perimeter (only polygons above this value are filtered)
-   *  @param amax The maximum perimeter (only polygons with a perimeter below this value are filtered)
-   *  @param inverse If set to true, only polygons not matching this criterion will be filtered
-   */
-  RegionPerimeterFilter (perimeter_type pmin, perimeter_type pmax, bool inverse)
-    : m_pmin (pmin), m_pmax (pmax), m_inverse (inverse)
-  {
-    //  .. nothing yet ..
-  }
-
-  /**
-   *  @brief Returns true if the polygon's perimeter matches the criterion
-   */
-  virtual bool selected (const db::Polygon &poly) const
-  {
-    perimeter_type p = 0;
-    for (db::Polygon::polygon_edge_iterator e = poly.begin_edge (); ! e.at_end () && p < m_pmax; ++e) {
-      p += (*e).length ();
-    }
-
-    if (! m_inverse) {
-      return p >= m_pmin && p < m_pmax;
-    } else {
-      return ! (p >= m_pmin && p < m_pmax);
-    }
-  }
-
-private:
-  perimeter_type m_pmin, m_pmax;
-  bool m_inverse;
-};
-
-/**
- *  @brief An area filter for use with Region::filter or Region::filtered
- *
- *  This filter has two parameters: amin and amax.
- *  It will filter all polygons for which the area is >= amin and < amax.
- *  There is an "invert" flag which allows to select all polygons not
- *  matching the criterion.
- */
-
-struct DB_PUBLIC RegionAreaFilter
-  : public PolygonFilterBase
-{
-  typedef db::Polygon::area_type area_type;
-
-  /**
-   *  @brief Constructor 
-   *
-   *  @param amin The min area (only polygons above this value are filtered)
-   *  @param amax The maximum area (only polygons with an area below this value are filtered)
-   *  @param inverse If set to true, only polygons not matching this criterion will be filtered
-   */
-  RegionAreaFilter (area_type amin, area_type amax, bool inverse)
-    : m_amin (amin), m_amax (amax), m_inverse (inverse)
-  {
-    //  .. nothing yet ..
-  }
-
-  /**
-   *  @brief Returns true if the polygon's area matches the criterion
-   */
-  virtual bool selected (const db::Polygon &poly) const
-  {
-    area_type a = poly.area (); 
-    if (! m_inverse) {
-      return a >= m_amin && a < m_amax;
-    } else {
-      return ! (a >= m_amin && a < m_amax);
-    }
-  }
-
-private:
-  area_type m_amin, m_amax;
-  bool m_inverse;
-};
-
-/**
- *  @brief A filter for rectilinear polygons
- *
- *  This filter will select all polygons which are rectilinear.
- */
-
-struct DB_PUBLIC RectilinearFilter
-  : public PolygonFilterBase
-{
-  /**
-   *  @brief Constructor 
-   *  @param inverse If set to true, only polygons not matching this criterion will be filtered
-   */
-  RectilinearFilter (bool inverse)
-    : m_inverse (inverse)
-  {
-    //  .. nothing yet ..
-  }
-
-  /**
-   *  @brief Returns true if the polygon's area matches the criterion
-   */
-  virtual bool selected (const db::Polygon &poly) const
-  {
-    return poly.is_rectilinear () != m_inverse;
-  }
-
-private:
-  bool m_inverse;
-};
-
-/**
- *  @brief A rectangle filter
- *
- *  This filter will select all polygons which are rectangles.
- */
-
-struct DB_PUBLIC RectangleFilter
-  : public PolygonFilterBase
-{
-  /**
-   *  @brief Constructor 
-   *  @param inverse If set to true, only polygons not matching this criterion will be filtered
-   */
-  RectangleFilter (bool inverse)
-    : m_inverse (inverse)
-  {
-    //  .. nothing yet ..
-  }
-
-  /**
-   *  @brief Returns true if the polygon's area matches the criterion
-   */
-  virtual bool selected (const db::Polygon &poly) const
-  {
-    return poly.is_box () != m_inverse;
-  }
-
-private:
-  bool m_inverse;
-};
-
-/**
- *  @brief A bounding box filter for use with Region::filter or Region::filtered
- *
- *  This filter has two parameters: vmin and vmax.
- *  It will filter all polygons for which the selected bounding box parameter is >= vmin and < vmax.
- *  There is an "invert" flag which allows to select all polygons not
- *  matching the criterion.
- *
- *  For bounding box parameters the following choices are available:
- *    - (BoxWidth) width
- *    - (BoxHeight) height
- *    - (BoxMaxDim) maximum of width and height
- *    - (BoxMinDim) minimum of width and height
- *    - (BoxAverageDim) average of width and height
- */
-
-struct DB_PUBLIC RegionBBoxFilter
-  : public PolygonFilterBase
-{
-  typedef db::Box::distance_type value_type;
-
-  /**
-   *  @brief The parameters available
-   */
-  enum parameter_type {
-    BoxWidth,
-    BoxHeight,
-    BoxMaxDim,
-    BoxMinDim,
-    BoxAverageDim
-  };
-
-  /**
-   *  @brief Constructor 
-   *
-   *  @param vmin The min value (only polygons with bounding box parameters above this value are filtered)
-   *  @param vmax The max value (only polygons with bounding box parameters below this value are filtered)
-   *  @param inverse If set to true, only polygons not matching this criterion will be filtered
-   */
-  RegionBBoxFilter (value_type vmin, value_type vmax, bool inverse, parameter_type parameter)
-    : m_vmin (vmin), m_vmax (vmax), m_inverse (inverse), m_parameter (parameter)
-  {
-    //  .. nothing yet ..
-  }
-
-  /**
-   *  @brief Returns true if the polygon's area matches the criterion
-   */
-  virtual bool selected (const db::Polygon &poly) const
-  {
-    value_type v = 0;
-    db::Box box = poly.box ();
-    if (m_parameter == BoxWidth) {
-      v = box.width ();
-    } else if (m_parameter == BoxHeight) {
-      v = box.height ();
-    } else if (m_parameter == BoxMinDim) {
-      v = std::min (box.width (), box.height ());
-    } else if (m_parameter == BoxMaxDim) {
-      v = std::max (box.width (), box.height ());
-    } else if (m_parameter == BoxAverageDim) {
-      v = (box.width () + box.height ()) / 2;
-    }
-    if (! m_inverse) {
-      return v >= m_vmin && v < m_vmax;
-    } else {
-      return ! (v >= m_vmin && v < m_vmax);
-    }
-  }
-
-private:
-  value_type m_vmin, m_vmax;
-  bool m_inverse;
-  parameter_type m_parameter;
-};
+class TransformationReducer;
 
 /**
  *  @brief A region iterator
@@ -502,12 +260,36 @@ public:
   Region &operator= (const Region &other);
 
   /**
-   *  @brief Constructor from an object
-   *
-   *  Creates a region representing a single instance of that object
+   *  @brief Constructor from a box
    */
-  template <class Sh>
-  Region (const Sh &s)
+  explicit Region (const db::Box &s)
+    : mp_delegate (0)
+  {
+    insert (s);
+  }
+
+  /**
+   *  @brief Constructor from a polygon
+   */
+  explicit Region (const db::Polygon &s)
+    : mp_delegate (0)
+  {
+    insert (s);
+  }
+
+  /**
+   *  @brief Constructor from a simple polygon
+   */
+  explicit Region (const db::SimplePolygon &s)
+    : mp_delegate (0)
+  {
+    insert (s);
+  }
+
+  /**
+   *  @brief Constructor from a path
+   */
+  explicit Region (const db::Path &s)
     : mp_delegate (0)
   {
     insert (s);
@@ -521,7 +303,7 @@ public:
    *  style.
    */
   template <class Iter>
-  Region (const Iter &b, const Iter &e)
+  explicit Region (const Iter &b, const Iter &e)
     : mp_delegate (0)
   {
     reserve (e - b);
@@ -536,7 +318,7 @@ public:
    *  Creates a region from a recursive shape iterator. This allows feeding a region
    *  from a hierarchy of cells.
    */
-  Region (const RecursiveShapeIterator &si);
+  explicit Region (const RecursiveShapeIterator &si);
 
   /**
    *  @brief Constructor from a RecursiveShapeIterator with a transformation
@@ -545,7 +327,7 @@ public:
    *  from a hierarchy of cells. The transformation is useful to scale to a specific
    *  DBU for example.
    */
-  Region (const RecursiveShapeIterator &si, const db::ICplxTrans &trans, bool merged_semantics = true);
+  explicit Region (const RecursiveShapeIterator &si, const db::ICplxTrans &trans, bool merged_semantics = true);
 
   /**
    *  @brief Constructor from a RecursiveShapeIterator providing a deep representation
@@ -556,12 +338,12 @@ public:
    *  "area_ratio" and "max_vertex_count" are optimization parameters for the
    *  shape splitting algorithm.
    */
-  Region (const RecursiveShapeIterator &si, DeepShapeStore &dss, double area_ratio = 3.0, size_t max_vertex_count = 16);
+  explicit Region (const RecursiveShapeIterator &si, DeepShapeStore &dss, double area_ratio = 3.0, size_t max_vertex_count = 16);
 
   /**
    *  @brief Constructor from a RecursiveShapeIterator providing a deep representation with transformation
    */
-  Region (const RecursiveShapeIterator &si, DeepShapeStore &dss, const db::ICplxTrans &trans, bool merged_semantics = true, double area_ratio = 3.0, size_t max_vertex_count = 16);
+  explicit Region (const RecursiveShapeIterator &si, DeepShapeStore &dss, const db::ICplxTrans &trans, bool merged_semantics = true, double area_ratio = 3.0, size_t max_vertex_count = 16);
 
   /**
    *  @brief Gets the underlying delegate object
@@ -569,6 +351,26 @@ public:
   RegionDelegate *delegate () const
   {
     return mp_delegate;
+  }
+
+  /**
+   *  @brief Sets the base verbosity
+   *
+   *  Setting this value will make timing measurements appear at least at
+   *  the given verbosity level and more detailed timing at the given level
+   *  plus 10. The default level is 30.
+   */
+  void set_base_verbosity (int vb)
+  {
+    mp_delegate->set_base_verbosity (vb);
+  }
+
+  /**
+   *  @brief Gets the base verbosity
+   */
+  unsigned int base_verbosity () const
+  {
+    return mp_delegate->base_verbosity ();
   }
 
   /**
@@ -826,6 +628,65 @@ public:
   }
 
   /**
+   *  @brief Processes the (merged) polygons
+   *
+   *  This method will keep all polygons which the processor returns.
+   *  The processing filter can apply modifications too. These modifications will be
+   *  kept in the output region.
+   *
+   *  Merged semantics applies. In merged semantics, the filter will run over
+   *  all merged polygons.
+   */
+  Region &process (const PolygonProcessorBase &filter)
+  {
+    set_delegate (mp_delegate->process_in_place (filter));
+    return *this;
+  }
+
+  /**
+   *  @brief Returns the processed polygons
+   *
+   *  This method will keep all polygons which the processor returns.
+   *  The processing filter can apply modifications too. These modifications will be
+   *  kept in the output region.
+   *
+   *  Merged semantics applies. In merged semantics, the filter will run over
+   *  all merged polygons.
+   *
+   *  This method will return a new region with the modified and filtered polygons.
+   */
+  Region processed (const PolygonProcessorBase &filter) const
+  {
+    return Region (mp_delegate->processed (filter));
+  }
+
+  /**
+   *  @brief Processes the polygons into edges
+   *
+   *  This method applies a processor returning edges for the polygons.
+   *
+   *  Merged semantics applies. In merged semantics, the filter will run over
+   *  all merged polygons.
+   */
+  Edges processed (const PolygonToEdgeProcessorBase &filter) const
+  {
+    return Edges (mp_delegate->processed_to_edges (filter));
+  }
+
+  /**
+   *  @brief Processes the polygons into edge pairs
+   *
+   *  This method applies a processor returning edge pairs for the polygons.
+   *
+   *  Merged semantics applies. In merged semantics, the filter will run over
+   *  all merged polygons.
+   */
+  EdgePairs processed (const PolygonToEdgePairProcessorBase &filter) const
+  {
+    return EdgePairs (mp_delegate->processed_to_edge_pairs (filter));
+  }
+
+  /**
    *  @brief Applies a width check and returns EdgePairs which correspond to violation markers
    *
    *  The width check will create a edge pairs if the width of the area between the
@@ -850,7 +711,7 @@ public:
    */
   EdgePairs width_check (db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->width_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->width_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -863,7 +724,7 @@ public:
    */
   EdgePairs space_check (db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->space_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->space_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -876,7 +737,7 @@ public:
    */
   EdgePairs isolated_check (db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->isolated_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->isolated_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -889,7 +750,7 @@ public:
    */
   EdgePairs notch_check (db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->notch_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->notch_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -906,7 +767,7 @@ public:
    */
   EdgePairs enclosing_check (const Region &other, db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->enclosing_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->enclosing_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -923,7 +784,7 @@ public:
    */
   EdgePairs overlap_check (const Region &other, db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->overlap_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->overlap_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -940,7 +801,7 @@ public:
    */
   EdgePairs separation_check (const Region &other, db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->separation_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->separation_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -957,7 +818,7 @@ public:
    */
   EdgePairs inside_check (const Region &other, db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->inside_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->inside_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -967,13 +828,13 @@ public:
    */
   Edges edges () const
   {
-    return mp_delegate->edges (0);
+    return Edges (mp_delegate->edges (0));
   }
 
   /**
    *  @brief Returns an edge set containing all edges of the polygons in this region
    *
-   *  This version allows to specify a filter by which the edges are filtered before they are
+   *  This version allows one to specify a filter by which the edges are filtered before they are
    *  returned.
    *
    *  Merged semantics applies. In merged semantics, only full, outer edges are delivered.
@@ -1008,7 +869,7 @@ public:
    */
   EdgePairs grid_check (db::Coord gx, db::Coord gy) const
   {
-    return mp_delegate->grid_check (gx, gy);
+    return EdgePairs (mp_delegate->grid_check (gx, gy));
   }
 
   /**
@@ -1020,7 +881,7 @@ public:
    */
   EdgePairs angle_check (double min, double max, bool inverse) const
   {
-    return mp_delegate->angle_check (min, max, inverse);
+    return EdgePairs (mp_delegate->angle_check (min, max, inverse));
   }
 
   /**
@@ -1029,18 +890,12 @@ public:
    *  Snaps the vertices of the polygons to the specified grid.
    *  different grids can be specified int x and y direction.
    */
-  void snap (db::Coord gx, db::Coord gy)
-  {
-    set_delegate (mp_delegate->snapped_in_place (gx, gy));
-  }
+  void snap (db::Coord gx, db::Coord gy);
 
   /**
    *  @brief Returns the snapped region
    */
-  Region snapped (db::Coord gx, db::Coord gy) const
-  {
-    return Region (mp_delegate->snapped (gx, gy));
-  }
+  Region snapped (db::Coord gx, db::Coord gy) const;
 
   /**
    *  @brief Performs a check for "strange" polygons
@@ -1050,10 +905,7 @@ public:
    *
    *  Naturally this method will ignore the merged_semantics setting.
    */
-  Region strange_polygon_check () const
-  {
-    return Region (mp_delegate->strange_polygon_check ());
-  }
+  Region strange_polygon_check () const;
 
   /**
    *  @brief Swap with the other region
@@ -1133,11 +985,7 @@ public:
    *  @param mode The sizing mode (see EdgeProcessor) for a description of the sizing mode which controls the miter distance.
    *  @return A reference to self
    */
-  Region &size (coord_type d, unsigned int mode = 2)
-  {
-    set_delegate (mp_delegate->sized (d, mode));
-    return *this;
-  }
+  Region &size (coord_type d, unsigned int mode = 2);
 
   /**
    *  @brief Anisotropic sizing
@@ -1151,11 +999,7 @@ public:
    *  @param dy The vertical sizing
    *  @param mode The sizing mode (see EdgeProcessor) for a description of the sizing mode which controls the miter distance.
    */
-  Region &size (coord_type dx, coord_type dy, unsigned int mode = 2)
-  {
-    set_delegate (mp_delegate->sized (dx, dy, mode));
-    return *this;
-  }
+  Region &size (coord_type dx, coord_type dy, unsigned int mode = 2);
 
   /**
    *  @brief Returns the sized region
@@ -1165,10 +1009,7 @@ public:
    *
    *  Merged semantics applies.
    */
-  Region sized (coord_type d, unsigned int mode = 2) const
-  {
-    return Region (mp_delegate->sized (d, mode));
-  }
+  Region sized (coord_type d, unsigned int mode = 2) const;
 
   /**
    *  @brief Returns the sized region
@@ -1178,10 +1019,7 @@ public:
    *
    *  Merged semantics applies.
    */
-  Region sized (coord_type dx, coord_type dy, unsigned int mode = 2) const
-  {
-    return Region (mp_delegate->sized (dx, dy, mode));
-  }
+  Region sized (coord_type dx, coord_type dy, unsigned int mode = 2) const;
 
   /**
    *  @brief Boolean AND operator
@@ -1518,10 +1356,7 @@ public:
    *
    *  Merged semantics applies.
    */
-  Region holes () const
-  {
-    return Region (mp_delegate->holes ());
-  }
+  Region holes () const;
 
   /**
    *  @brief Returns the hulls
@@ -1531,10 +1366,7 @@ public:
    *
    *  Merged semantics applies.
    */
-  Region hulls () const
-  {
-    return Region (mp_delegate->hulls ());
-  }
+  Region hulls () const;
 
   /**
    *  @brief Returns all polygons which are in the other region
@@ -1559,36 +1391,24 @@ public:
    *  @param router The outer radius in DBU units
    *  @param n The number of points to use per circle
    */
-  void round_corners (double rinner, double router, unsigned int n)
-  {
-    set_delegate (mp_delegate->rounded_corners (rinner, router, n));
-  }
+  void round_corners (double rinner, double router, unsigned int n);
 
   /**
    *  @brief Returns a new region with rounded corners (out of place)
    */
-  Region rounded_corners (double rinner, double router, unsigned int n) const
-  {
-    return Region (mp_delegate->rounded_corners (rinner, router, n));
-  }
+  Region rounded_corners (double rinner, double router, unsigned int n) const;
 
   /**
    *  @brief Smoothes the region (in-place)
    */
-  void smooth (coord_type d)
-  {
-    set_delegate (mp_delegate->smoothed (d));
-  }
+  void smooth (coord_type d);
 
   /**
    *  @brief Returns the smoothed region
    *
    *  @param d The smoothing accuracy
    */
-  Region smoothed (coord_type d) const
-  {
-    return Region (mp_delegate->smoothed (d));
-  }
+  Region smoothed (coord_type d) const;
 
   /**
    *  @brief Returns the nth polygon
@@ -1606,9 +1426,10 @@ public:
    *
    *  This method will turn any region into a flat shape collection.
    */
-  void flatten ()
+  db::Region &flatten ()
   {
     flat_region ();
+    return *this;
   }
 
   /**
@@ -1695,13 +1516,47 @@ public:
     return mp_delegate->insert_into (layout, into_cell, into_layer);
   }
 
+  /**
+   *  @brief Delivers texts as dots (degenerated edges)
+   *
+   *  "pat" is a text selector. If "as_pattern" is true, this pattern will be
+   *  treated as a glob pattern. Otherwise, the text is taken if "pat" is equal to the text..
+   */
+  db::Edges texts_as_dots (const std::string &pat, bool as_pattern) const;
+
+  /**
+   *  @brief Delivers texts as dots (degenerated edges) in a deep edge collection
+   *
+   *  "pat" is a text selector. If "as_pattern" is true, this pattern will be
+   *  treated as a glob pattern. Otherwise, the text is taken if "pat" is equal to the text..
+   */
+  db::Edges texts_as_dots (const std::string &pat, bool as_pattern, db::DeepShapeStore &store) const;
+
+  /**
+   *  @brief Delivers texts as boxes
+   *
+   *  "pat" is a text selector. If "as_pattern" is true, this pattern will be
+   *  treated as a glob pattern. Otherwise, the text is taken if "pat" is equal to the text.
+   *  "enl" is the half size of the box (the box is 2*enl wide and 2*enl high).
+   */
+  db::Region texts_as_boxes (const std::string &pat, bool as_pattern, db::Coord enl) const;
+
+  /**
+   *  @brief Delivers texts as boxes in a deep region
+   *
+   *  "pat" is a text selector. If "as_pattern" is true, this pattern will be
+   *  treated as a glob pattern. Otherwise, the text is taken if "pat" is equal to the text.
+   *  "enl" is the half size of the box (the box is 2*enl wide and 2*enl high).
+   */
+  db::Region texts_as_boxes (const std::string &pat, bool as_pattern, db::Coord enl, db::DeepShapeStore &store) const;
+
 private:
   friend class Edges;
   friend class EdgePairs;
 
   RegionDelegate *mp_delegate;
 
-  void set_delegate (RegionDelegate *delegate);
+  void set_delegate (RegionDelegate *delegate, bool keep_attributes = true);
   FlatRegion *flat_region ();
 };
 
@@ -1719,7 +1574,7 @@ public:
    *  @brief Constructor specifying the region where to store the polygons
    *
    *  If "clear" is set to true, the region will be cleared before the 
-   *  inserting of polygons starts. This allows to use the region as input and
+   *  inserting of polygons starts. This allows using the region as input and
    *  output for any operation.
    */
   RegionPolygonSink (Region &region, bool clear = false) 

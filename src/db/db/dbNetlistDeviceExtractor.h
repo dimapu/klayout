@@ -123,7 +123,7 @@ public:
   }
 
   /**
-   *  @brief Gets the cell name the error occured in
+   *  @brief Gets the cell name the error occurred in
    */
   const std::string &cell_name () const
   {
@@ -137,6 +137,11 @@ public:
   {
     m_cell_name = n;
   }
+
+  /**
+   *  @brief Formats this message for printing
+   */
+  std::string to_string () const;
 
 private:
   std::string m_cell_name;
@@ -157,8 +162,8 @@ public:
     //  .. nothing yet ..
   }
 
-  NetlistDeviceExtractorLayerDefinition (const std::string &_name, const std::string &_description, size_t _index)
-    : name (_name), description (_description), index (_index)
+  NetlistDeviceExtractorLayerDefinition (const std::string &_name, const std::string &_description, size_t _index, size_t _fallback_index)
+    : name (_name), description (_description), index (_index), fallback_index (_fallback_index)
   {
     //  .. nothing yet ..
   }
@@ -177,6 +182,12 @@ public:
    *  @brief The index of the layer
    */
   size_t index;
+
+  /**
+   *  @brief The index of the fallback layer
+   *  This is the layer to be used when this layer isn't specified for input or (more important) output
+   */
+  size_t fallback_index;
 };
 
 /**
@@ -194,6 +205,7 @@ public:
   typedef std::vector<db::NetlistDeviceExtractorLayerDefinition> layer_definitions;
   typedef layer_definitions::const_iterator layer_definitions_iterator;
   typedef std::map<std::string, db::Region *> input_layers;
+  typedef db::hier_clusters<db::PolygonRef> hier_clusters_type;
 
   /**
    *  @brief Constructor
@@ -217,11 +229,21 @@ public:
 
   /**
    *  @brief Gets the property name for the device terminal annotation
-   *  Annotation happens through db::DeviceTerminalProperty objects attached to
-   *  the terminal shapes.
-   *  The name used for the property is the one returned by this function.
+   *  This name is used to attach the terminal ID to terminal shapes.
    */
-  static const tl::Variant &terminal_property_name ();
+  static const tl::Variant &terminal_id_property_name ();
+
+  /**
+   *  @brief Gets the property name for the device id annotation
+   *  This name is used to attach the device ID to instances.
+   */
+  static const tl::Variant &device_id_property_name ();
+
+  /**
+   *  @brief Gets the property name for the device class annotation
+   *  This name is used to attach the device class name to cells.
+   */
+  static const tl::Variant &device_class_property_name ();
 
   /**
    *  @brief Performs the extraction
@@ -241,7 +263,7 @@ public:
    *
    *  NOTE: The extractor expects "PolygonRef" type layers.
    */
-  void extract (Layout &layout, Cell &cell, const std::vector<unsigned int> &layers, Netlist *netlist);
+  void extract (Layout &layout, Cell &cell, const std::vector<unsigned int> &layers, Netlist *netlist, hier_clusters_type &clusters);
 
   /**
    *  @brief Extracts the devices from a list of regions
@@ -250,7 +272,7 @@ public:
    *  named regions for input. These regions need to be of deep region type and
    *  originate from the same layout than the DeepShapeStore.
    */
-  void extract (DeepShapeStore &dss, const input_layers &layers, Netlist *netlist);
+  void extract (DeepShapeStore &dss, unsigned int layout_index, const input_layers &layers, Netlist &netlist, hier_clusters_type &clusters);
 
   /**
    *  @brief Gets the error iterator, begin
@@ -292,7 +314,6 @@ public:
     return m_layer_definitions.end ();
   }
 
-protected:
   /**
    *  @brief Sets the name of the device class and the device extractor
    */
@@ -351,7 +372,14 @@ protected:
    *  the device layers. The actual geometries are later available to "extract_devices"
    *  in the order the layers are defined.
    */
-  void define_layer (const std::string &name, const std::string &description = std::string ());
+  const db::NetlistDeviceExtractorLayerDefinition &define_layer (const std::string &name, const std::string &description = std::string ());
+
+  /**
+   *  @brief Defines a layer with a fallback layer
+   *  Like "define_layer" without fallback layer, but will fall back to the given layer
+   *  (by index) if this layer isn't specified for input or terminal markup.
+   */
+  const db::NetlistDeviceExtractorLayerDefinition &define_layer (const std::string &name, size_t fallback, const std::string &description = std::string ());
 
   /**
    *  @brief Creates a device
@@ -359,6 +387,11 @@ protected:
    *  It will be owned by the netlist and must not be deleted by the caller.
    */
   Device *create_device ();
+
+  /**
+   *  @brief Defines a device terminal in the layout (a region)
+   */
+  void define_terminal (Device *device, size_t terminal_id, size_t layer_index, const db::Region &region);
 
   /**
    *  @brief Defines a device terminal in the layout (a polygon)
@@ -452,9 +485,43 @@ protected:
   std::string cell_name () const;
 
 private:
+  struct DeviceCellKey
+  {
+    DeviceCellKey () { }
+
+    bool operator== (const DeviceCellKey &other) const
+    {
+      if (geometry != other.geometry) {
+        return false;
+      }
+      if (parameters != other.parameters) {
+        return false;
+      }
+      return true;
+    }
+
+    bool operator< (const DeviceCellKey &other) const
+    {
+      if (geometry != other.geometry) {
+        return geometry < other.geometry;
+      }
+      if (parameters != other.parameters) {
+        return parameters < other.parameters;
+      }
+      return false;
+    }
+
+    std::map<size_t, std::map<unsigned int, std::set<db::PolygonRef> > > geometry;
+    std::map<size_t, double> parameters;
+  };
+
+  typedef std::map<unsigned int, std::vector<db::PolygonRef> > geometry_per_layer_type;
+  typedef std::map<size_t, geometry_per_layer_type> geometry_per_terminal_type;
+
   tl::weak_ptr<db::Netlist> m_netlist;
   db::Layout *mp_layout;
-  db::properties_id_type m_propname_id;
+  db::properties_id_type m_terminal_id_propname_id, m_device_id_propname_id, m_device_class_propname_id;
+  hier_clusters_type *mp_clusters;
   db::cell_index_type m_cell_index;
   db::Circuit *mp_circuit;
   db::DeviceClass *mp_device_class;
@@ -462,6 +529,8 @@ private:
   layer_definitions m_layer_definitions;
   std::vector<unsigned int> m_layers;
   error_list m_errors;
+  std::map<size_t, std::pair<db::Device *, geometry_per_terminal_type> > m_new_devices;
+  std::map<DeviceCellKey, std::pair<db::cell_index_type, db::DeviceAbstract *> > m_device_cells;
 
   //  no copying
   NetlistDeviceExtractor (const NetlistDeviceExtractor &);
@@ -473,7 +542,9 @@ private:
    */
   void initialize (db::Netlist *nl);
 
-  void extract_without_initialize (db::Layout &layout, db::Cell &cell, const std::vector<unsigned int> &layers);
+  void extract_without_initialize (db::Layout &layout, db::Cell &cell, hier_clusters_type &clusters, const std::vector<unsigned int> &layers);
+  void push_new_devices (const Vector &disp_cache);
+  void push_cached_devices (const tl::vector<Device *> &cached_devices, const db::Vector &disp_cache, const db::Vector &new_disp);
 };
 
 }

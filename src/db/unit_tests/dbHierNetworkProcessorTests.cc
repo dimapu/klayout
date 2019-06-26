@@ -277,6 +277,11 @@ static std::string obj2string (const db::PolygonRef &ref)
   return ref.obj ().transformed (ref.trans ()).to_string ();
 }
 
+static std::string obj2string (const db::Edge &ref)
+{
+  return ref.to_string ();
+}
+
 template <class T>
 static std::string local_cluster_to_string (const db::local_cluster<T> &cluster, const db::Connectivity &conn)
 {
@@ -534,6 +539,57 @@ TEST(22_LocalClustersWithGlobal)
   );
 }
 
+TEST(23_LocalClustersWithEdges)
+{
+  db::Layout layout;
+  db::Cell &cell = layout.cell (layout.add_cell ("TOP"));
+
+  db::Edge edge;
+
+  tl::from_string ("(0,0;0,500)", edge);
+  cell.shapes (0).insert (edge);
+
+  tl::from_string ("(0,500;0,1000)", edge);
+  cell.shapes (0).insert (edge);
+
+  tl::from_string ("(0,1000;2000,1000)", edge);
+  cell.shapes (0).insert (edge);
+
+  tl::from_string ("(2000,1000;2000,500)", edge);
+  cell.shapes (0).insert (edge);
+
+  tl::from_string ("(2000,500;1000,250)", edge);
+  cell.shapes (0).insert (edge);
+
+  tl::from_string ("(1500,375;0,0)", edge);
+  cell.shapes (0).insert (edge);
+
+  {
+    //  edge clusters are for intra-layer mainly
+    db::Connectivity conn;
+    conn.connect (0);
+
+    db::local_clusters<db::Edge> clusters;
+    clusters.build_clusters (cell, db::ShapeIterator::Edges, conn);
+    EXPECT_EQ (local_clusters_to_string (clusters, conn),
+      "#1:[0](0,0;0,500);[0](0,500;0,1000)\n"
+      "#2:[0](2000,500;1000,250);[0](1500,375;0,0)\n"
+      "#3:[0](0,1000;2000,1000)\n"
+      "#4:[0](2000,1000;2000,500)"
+    );
+  }
+
+  {
+    //  edge clusters are for intra-layer mainly
+    db::Connectivity conn (db::Connectivity::EdgesConnectByPoints);
+    conn.connect (0);
+
+    db::local_clusters<db::Edge> clusters;
+    clusters.build_clusters (cell, db::ShapeIterator::Edges, conn);
+    EXPECT_EQ (local_clusters_to_string (clusters, conn), "#1:[0](0,0;0,500);[0](0,500;0,1000);[0](1500,375;0,0);[0](0,1000;2000,1000);[0](2000,1000;2000,500);[0](2000,500;1000,250)");
+  }
+}
+
 TEST(30_LocalConnectedClusters)
 {
   db::Layout layout;
@@ -578,13 +634,13 @@ TEST(30_LocalConnectedClusters)
   EXPECT_EQ (x.size (), size_t (3));
   ix = x.begin ();
   EXPECT_EQ (ix->id (), size_t (1));
-  EXPECT_EQ (ix->inst () == db::InstElement (i1), true);
+  EXPECT_EQ (*ix == db::ClusterInstance (ix->id (), i1.cell_index (), i1.complex_trans (), i1.prop_id ()), true);
   ++ix;
   EXPECT_EQ (ix->id (), size_t (2));
-  EXPECT_EQ (ix->inst () == db::InstElement (i2), true);
+  EXPECT_EQ (*ix == db::ClusterInstance (ix->id (), i2.cell_index (), i2.complex_trans (), i2.prop_id ()), true);
   ++ix;
   EXPECT_EQ (ix->id (), size_t (1));
-  EXPECT_EQ (ix->inst () == db::InstElement (i2), true);
+  EXPECT_EQ (*ix == db::ClusterInstance (ix->id (), i2.cell_index (), i2.complex_trans (), i2.prop_id ()), true);
 
   x = cc.connections_for_cluster (2);
   EXPECT_EQ (x.size (), size_t (0));
@@ -659,7 +715,7 @@ TEST(40_HierClustersBasic)
   EXPECT_EQ (cluster->bbox ().to_string (), "(0,0;1000,1000)")
   nc = 0;
   for (db::connected_clusters<db::PolygonRef>::connections_iterator i = cluster->begin_connections (); i != cluster->end_connections (); ++i) {
-    nc += i->second.size ();
+    nc += int (i->second.size ());
   }
   EXPECT_EQ (nc, 2);
 
@@ -673,7 +729,7 @@ TEST(40_HierClustersBasic)
   EXPECT_EQ (cluster->bbox ().to_string (), "(0,0;2000,500)")
   nc = 0;
   for (db::connected_clusters<db::PolygonRef>::connections_iterator i = cluster->begin_connections (); i != cluster->end_connections (); ++i) {
-    nc += i->second.size ();
+    nc += int (i->second.size ());
   }
   EXPECT_EQ (nc, 0);
 
@@ -687,7 +743,7 @@ TEST(40_HierClustersBasic)
   EXPECT_EQ (cluster->bbox ().to_string (), "(0,0;500,2000)")
   nc = 0;
   for (db::connected_clusters<db::PolygonRef>::connections_iterator i = cluster->begin_connections (); i != cluster->end_connections (); ++i) {
-    nc += i->second.size ();
+    nc += int (i->second.size ());
   }
   EXPECT_EQ (nc, 1);
 }
@@ -697,15 +753,19 @@ static std::string path2string (const db::Layout &ly, db::cell_index_type ci, co
   std::string res = ly.cell_name (ci);
   for (std::vector<db::ClusterInstance>::const_iterator p = path.begin (); p != path.end (); ++p) {
     res += "/";
-    res += ly.cell_name (p->inst ().inst_ptr.cell_index ());
+    res += ly.cell_name (p->inst_cell_index ());
   }
   return res;
 }
 
-static std::string rcsiter2string (const db::Layout &ly, db::cell_index_type ci, db::recursive_cluster_shape_iterator<db::PolygonRef> si)
+static std::string rcsiter2string (const db::Layout &ly, db::cell_index_type ci, db::recursive_cluster_shape_iterator<db::PolygonRef> si, db::cell_index_type ci2skip = std::numeric_limits<db::cell_index_type>::max ())
 {
   std::string res;
   while (! si.at_end ()) {
+    if (si.cell_index () == ci2skip) {
+      si.skip_cell ();
+      continue;
+    }
     db::Polygon poly = si->obj ();
     poly.transform (si->trans ());
     poly.transform (si.trans ());
@@ -766,6 +826,16 @@ TEST(41_HierClustersRecursiveClusterShapeIterator)
   }
   EXPECT_EQ (n, 1);
   EXPECT_EQ (res, "TOP:(0,0;0,1000;1000,1000;1000,0);TOP/C1:(0,10;0,510;2000,510;2000,10);TOP/C2:(0,30;0,2030;500,2030;500,30);TOP/C2/C1:(0,50;0,550;2000,550;2000,50)");
+
+  res.clear ();
+  n = 0;
+  cluster = &hc.clusters_per_cell (top.cell_index ());
+  for (db::connected_clusters<db::PolygonRef>::const_iterator i = cluster->begin (); i != cluster->end (); ++i) {
+    res = rcsiter2string (ly, top.cell_index (), db::recursive_cluster_shape_iterator<db::PolygonRef> (hc, l1, top.cell_index (), i->id ()), c1.cell_index ());
+    ++n;
+  }
+  EXPECT_EQ (n, 1);
+  EXPECT_EQ (res, "TOP:(0,0;0,1000;1000,1000;1000,0);TOP/C2:(0,30;0,2030;500,2030;500,30)");
 }
 
 TEST(41_HierClustersRecursiveClusterIterator)
@@ -866,9 +936,9 @@ static void copy_cluster_shapes (const std::string *&attrs, db::Shapes &out, db:
   const connections_type &connections = clusters.connections_for_cluster (cluster_id);
   for (connections_type::const_iterator i = connections.begin (); i != connections.end (); ++i) {
 
-    db::ICplxTrans t = trans * i->inst ().complex_trans ();
+    db::ICplxTrans t = trans * i->inst_trans ();
 
-    db::cell_index_type cci = i->inst ().inst_ptr.cell_index ();
+    db::cell_index_type cci = i->inst_cell_index ();
     copy_cluster_shapes (attrs, out, cci, hc, i->id (), t, conn);
 
   }

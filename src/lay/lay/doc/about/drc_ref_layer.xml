@@ -71,12 +71,12 @@ The method computes a boolean AND between self and other.
 It is an alias for the "&amp;" operator.
 </p><p>
 This method is available for polygon and edge layers.
-If the first operand is an edge layer and the second is an edge layer, the
+If the first operand is an edge layer and the second is a polygon layer, the
 result will be the edges of the first operand which are inside or on the
 borders of the polygons of the second operand.
 </p><p>
 The following images show the effect of the "and" method
-on polygons and egdes (layer1: red, layer2: blue):
+on polygons and edges (layer1: red, layer2: blue):
 </p><p>
 <table>
 <tr>
@@ -225,7 +225,7 @@ deliver objects that can be converted into polygons. Such objects are of class <
 <p>
 This method produces markers on the corners of the polygons. An angle criterion can be given which
 selects corners based on the angle of the connecting edges. Positive angles indicate a left turn
-while negative angles indicate a right turn. Since polygons are oriented clockwise, postive angles
+while negative angles indicate a right turn. Since polygons are oriented clockwise, positive angles
 indicate concave corners while negative ones indicate convex corners.
 </p><p>
 The markers generated can be point-like edges or small 2x2 DBU boxes. The latter is the default.
@@ -584,6 +584,18 @@ The following images show the effect of the extents method:
 Applies to edge pair collections only.
 Returns the first edges of the edge pairs in the collection.
 </p>
+<h2>"flatten" - Flattens the layer</h2>
+<keyword name="flatten"/>
+<a name="flatten"/><p>Usage:</p>
+<ul>
+<li><tt>layer.flatten</tt></li>
+</ul>
+<p>
+If the layer already is a flat one, this method does nothing.
+If the layer is a hierarchical layer (an original layer or
+a derived layer in deep mode), this method will convert it
+to a flat collection of polygons, edges or edge pairs.
+</p>
 <h2>"holes" - Selects all polygon holes from the input</h2>
 <keyword name="holes"/>
 <a name="holes"/><p>Usage:</p>
@@ -759,6 +771,12 @@ is composed of multiple pieces, this method will not return true.
 <p>
 See <a href="#clean">clean</a> for a discussion of the clean state.
 </p>
+<h2>"is_deep?" - Returns true, if the layer is a deep (hierarchical) layer</h2>
+<keyword name="is_deep?"/>
+<a name="is_deep?"/><p>Usage:</p>
+<ul>
+<li><tt>layer.is_deep?</tt></li>
+</ul>
 <h2>"is_empty?" - Returns true, if the layer is empty</h2>
 <keyword name="is_empty?"/>
 <a name="is_empty?"/><p>Usage:</p>
@@ -829,7 +847,7 @@ It is an alias for the "+" operator.
 This method is available for polygon, edge and edge pair layers.
 </p><p>
 The following images show the effect of the "join" method
-on polygons and egdes (layer1: red, layer2: blue):
+on polygons and edges (layer1: red, layer2: blue):
 </p><p>
 <table>
 <tr>
@@ -999,7 +1017,7 @@ result will be the edges of the first operand which are outside the polygons
 of the second operand.
 </p><p>
 The following images show the effect of the "not" method
-on polygons and egdes (layer1: red, layer2: blue):
+on polygons and edges (layer1: red, layer2: blue):
 </p><p>
 <table>
 <tr>
@@ -1185,7 +1203,7 @@ It is an alias for the "|" operator.
 This method is available for polygon and edge layers.
 </p><p>
 The following images show the effect of the "or" method
-on polygons and egdes (layer1: red, layer2: blue):
+on polygons and edges (layer1: red, layer2: blue):
 </p><p>
 <table>
 <tr>
@@ -2303,7 +2321,7 @@ It is an alias for the "^" operator.
 This method is available for polygon and edge layers.
 </p><p>
 The following images show the effect of the "xor" method
-on polygons and egdes (layer1: red, layer2: blue):
+on polygons and edges (layer1: red, layer2: blue):
 </p><p>
 <table>
 <tr>

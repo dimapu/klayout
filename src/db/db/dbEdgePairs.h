@@ -40,6 +40,8 @@ class FlatEdgePairs;
 class EmptyEdgePairs;
 class Edges;
 class Region;
+class DeepShapeStore;
+class TransformationReducer;
 
 /**
  *  @brief An edge pair set iterator
@@ -212,6 +214,7 @@ public:
   virtual ~EdgePairFilterBase () { }
 
   virtual bool selected (const db::EdgePair &edge) const = 0;
+  virtual const TransformationReducer *vars () const = 0;
 };
 
 /**
@@ -273,8 +276,18 @@ public:
    *
    *  Creates an edge pair set representing a single instance of that object
    */
-  template <class Sh>
-  EdgePairs (const Sh &s)
+  explicit EdgePairs (const db::EdgePair &s)
+    : mp_delegate (0)
+  {
+    insert (s);
+  }
+
+  /**
+   *  @brief Constructor from an object
+   *
+   *  Creates an edge pair set representing a single instance of that object
+   */
+  explicit EdgePairs (const db::Shape &s)
     : mp_delegate (0)
   {
     insert (s);
@@ -287,7 +300,7 @@ public:
    *  This version accepts iterators of the begin ... end style.
    */
   template <class Iter>
-  EdgePairs (const Iter &b, const Iter &e)
+  explicit EdgePairs (const Iter &b, const Iter &e)
     : mp_delegate (0)
   {
     reserve (e - b);
@@ -299,19 +312,32 @@ public:
   /**
    *  @brief Constructor from a RecursiveShapeIterator
    *
-   *  Creates an edge pair set from a recursive shape iterator. This allows to feed an edge pair set
+   *  Creates an edge pair set from a recursive shape iterator. This allows one to feed an edge pair set
    *  from a hierarchy of cells.
    */
-  EdgePairs (const RecursiveShapeIterator &si);
+  explicit EdgePairs (const RecursiveShapeIterator &si);
 
   /**
    *  @brief Constructor from a RecursiveShapeIterator with a transformation
    *
-   *  Creates an edge pair set from a recursive shape iterator. This allows to feed an edge pair set 
+   *  Creates an edge pair set from a recursive shape iterator. This allows one to feed an edge pair set
    *  from a hierarchy of cells. The transformation is useful to scale to a specific
    *  DBU for example.
    */
-  EdgePairs (const RecursiveShapeIterator &si, const db::ICplxTrans &trans);
+  explicit EdgePairs (const RecursiveShapeIterator &si, const db::ICplxTrans &trans);
+
+  /**
+   *  @brief Constructor from a RecursiveShapeIterator providing a deep representation
+   *
+   *  This version will create a hierarchical edge pair collection. The DeepShapeStore needs to be provided
+   *  during the lifetime of the collection and acts as a heap for optimized data.
+   */
+  explicit EdgePairs (const RecursiveShapeIterator &si, DeepShapeStore &dss);
+
+  /**
+   *  @brief Constructor from a RecursiveShapeIterator providing a deep representation with transformation
+   */
+  explicit EdgePairs (const RecursiveShapeIterator &si, DeepShapeStore &dss, const db::ICplxTrans &trans);
 
   /**
    *  @brief Gets the underlying delegate object
@@ -626,6 +652,26 @@ public:
   void disable_progress ()
   {
     mp_delegate->disable_progress ();
+  }
+
+  /**
+   *  @brief Inserts the edge pair collection into the given layout, cell and layer
+   *  If the edge pair collection is a hierarchical region, the hierarchy is copied into the
+   *  layout's hierarchy.
+   */
+  void insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const
+  {
+    return mp_delegate->insert_into (layout, into_cell, into_layer);
+  }
+
+  /**
+   *  @brief Inserts the edge pair collection into the given layout, cell and layer as polygons with the given enlargement
+   *  If the edge pair collection is a hierarchical region, the hierarchy is copied into the
+   *  layout's hierarchy.
+   */
+  void insert_into_as_polygons (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer, db::Coord enl) const
+  {
+    return mp_delegate->insert_into_as_polygons (layout, into_cell, into_layer, enl);
   }
 
 private:

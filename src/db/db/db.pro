@@ -142,7 +142,6 @@ SOURCES = \
     dbHierProcessor.cc \
     dbDeepRegion.cc \
     dbHierNetworkProcessor.cc \
-    dbNetlistProperty.cc \
     dbNetlist.cc \
     gsiDeclDbNetlist.cc \
     dbNetlistDeviceClasses.cc \
@@ -153,7 +152,38 @@ SOURCES = \
     gsiDeclDbHierNetworkProcessor.cc \
     dbNetlistDeviceExtractorClasses.cc \
     dbLayoutToNetlist.cc \
-    gsiDeclDbLayoutToNetlist.cc
+    gsiDeclDbLayoutToNetlist.cc \
+    dbCircuit.cc \
+    dbDevice.cc \
+    dbDeviceClass.cc \
+    dbNet.cc \
+    dbSubCircuit.cc \
+    dbPin.cc \
+    dbLayoutToNetlistReader.cc \
+    dbLayoutToNetlistWriter.cc \
+    dbLayoutToNetlistFormatDefs.cc \
+    dbDeviceAbstract.cc \
+    dbLocalOperationUtils.cc \
+    gsiDeclDbDeepShapeStore.cc \
+    dbNetlistSpiceWriter.cc \
+    dbNetlistWriter.cc \
+    dbCellVariants.cc \
+    dbDeepEdges.cc \
+    dbDeepEdgePairs.cc \
+    dbRegionUtils.cc \
+    dbEdgesUtils.cc \
+    dbRegionProcessors.cc \
+    dbNetlistCompare.cc \
+    dbNetlistReader.cc \
+    dbNetlistSpiceReader.cc \
+    gsiDeclDbNetlistCompare.cc \
+    dbNetlistCrossReference.cc \
+    dbLayoutVsSchematicWriter.cc \
+    dbLayoutVsSchematicReader.cc \
+    dbLayoutVsSchematicFormatDefs.cc \
+    dbLayoutVsSchematic.cc \
+    gsiDeclDbNetlistCrossReference.cc \
+    gsiDeclDbLayoutVsSchematic.cc
 
 HEADERS = \
   dbArray.h \
@@ -263,14 +293,43 @@ HEADERS = \
     dbHierarchyBuilder.h \
     dbLocalOperation.h \
     dbHierProcessor.h \
-    dbNetlistProperty.h \
     dbNetlist.h \
     dbNetlistDeviceClasses.h \
     dbNetlistDeviceExtractor.h \
     dbNetlistExtractor.h \
     dbNetlistDeviceExtractorClasses.h \
     dbLayoutToNetlist.h \
-    dbHierNetworkProcessor.h
+    dbHierNetworkProcessor.h \
+    dbNetlistUtils.h \
+    dbNet.h \
+    dbCircuit.h \
+    dbDevice.h \
+    dbDeviceClass.h \
+    dbPin.h \
+    dbSubCircuit.h \
+    dbLayoutToNetlistReader.h \
+    dbLayoutToNetlistWriter.h \
+    dbLayoutToNetlistFormatDefs.h \
+    dbDeviceAbstract.h \
+    dbLocalOperationUtils.h \
+    dbDeepRegion.h \
+    dbNetlistSpiceWriter.h \
+    dbNetlistWriter.h \
+    dbCellVariants.h \
+    dbDeepEdges.h \
+    dbDeepEdgePairs.h \
+    dbRegionUtils.h \
+    dbEdgesUtils.h \
+    dbRegionProcessors.h \
+    gsiDeclDbHelpers.h \
+    dbNetlistCompare.h \
+    dbNetlistReader.h \
+    dbNetlistSpiceReader.h \
+    dbNetlistCrossReference.h \
+    dbLayoutVsSchematicWriter.h \
+    dbLayoutVsSchematicReader.h \
+    dbLayoutVsSchematicFormatDefs.h \
+    dbLayoutVsSchematic.h
 
 !equals(HAVE_QT, "0") {
 

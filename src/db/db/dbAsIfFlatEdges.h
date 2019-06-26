@@ -25,10 +25,17 @@
 #define HDR_dbAsIfFlatEdges
 
 #include "dbCommon.h"
-
+#include "dbBoxScanner.h"
 #include "dbEdgesDelegate.h"
+#include "dbBoxScanner.h"
+#include "dbPolygonTools.h"
+
+#include <map>
+#include <vector>
 
 namespace db {
+
+class PolygonSink;
 
 /**
  *  @brief Provides default flat implementations
@@ -45,35 +52,44 @@ public:
   virtual distance_type length (const db::Box &) const;
   virtual Box bbox () const;
 
-  virtual EdgePairs width_check (db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
+  virtual EdgePairsDelegate *width_check (db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
   {
     return run_check (db::WidthRelation, 0, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
   }
     
-  virtual EdgePairs space_check (db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
+  virtual EdgePairsDelegate *space_check (db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
   {
     return run_check (db::SpaceRelation, 0, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
   }
 
-  virtual EdgePairs enclosing_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
+  virtual EdgePairsDelegate *enclosing_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
   {
     return run_check (db::OverlapRelation, &other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
   }
 
-  virtual EdgePairs overlap_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
+  virtual EdgePairsDelegate *overlap_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
   {
     return run_check (db::WidthRelation, &other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
   }
 
-  virtual EdgePairs separation_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
+  virtual EdgePairsDelegate *separation_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
   {
     return run_check (db::SpaceRelation, &other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
   }
 
-  virtual EdgePairs inside_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
+  virtual EdgePairsDelegate *inside_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
   {
     return run_check (db::InsideRelation, &other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
   }
+
+  virtual EdgesDelegate *process_in_place (const EdgeProcessorBase &filter)
+  {
+    return processed (filter);
+  }
+
+  virtual EdgesDelegate *processed (const EdgeProcessorBase &filter) const;
+  virtual EdgePairsDelegate *processed_to_edge_pairs (const EdgeToEdgePairProcessorBase &) const;
+  virtual RegionDelegate *processed_to_polygons (const EdgeToPolygonProcessorBase &) const;
 
   virtual EdgesDelegate *filter_in_place (const EdgeFilterBase &filter)
   {
@@ -140,9 +156,6 @@ public:
   }
 
   virtual RegionDelegate *extended (coord_type ext_b, coord_type ext_e, coord_type ext_o, coord_type ext_i, bool join) const;
-  virtual EdgesDelegate *start_segments (length_type length, double fraction) const;
-  virtual EdgesDelegate *end_segments (length_type length, double fraction) const;
-  virtual EdgesDelegate *centers (length_type length, double fraction) const;
 
   virtual EdgesDelegate *selected_interacting (const Edges &) const;
   virtual EdgesDelegate *selected_not_interacting (const Edges &) const;
@@ -154,9 +167,14 @@ public:
   virtual bool equals (const Edges &other) const;
   virtual bool less (const Edges &other) const;
 
+  virtual void insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const;
+
 protected:
   void update_bbox (const db::Box &box);
   void invalidate_bbox ();
+  EdgePairsDelegate *run_check (db::edge_relation_type rel, const Edges *other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const;
+  virtual EdgesDelegate *selected_interacting_generic (const Edges &edges, bool inverse) const;
+  virtual EdgesDelegate *selected_interacting_generic (const Region &region, bool inverse) const;
 
 private:
   AsIfFlatEdges &operator= (const AsIfFlatEdges &other);
@@ -165,7 +183,6 @@ private:
   mutable db::Box m_bbox;
 
   virtual db::Box compute_bbox () const;
-  EdgePairs run_check (db::edge_relation_type rel, const Edges *other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const;
   EdgesDelegate *boolean (const Edges *other, EdgeBoolOp op) const;
   EdgesDelegate *edge_region_op (const Region &other, bool outside, bool include_borders) const;
 };

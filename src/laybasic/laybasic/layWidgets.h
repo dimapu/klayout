@@ -112,7 +112,7 @@ private:
 /**
  *  @brief A library selection combo box
  *
- *  This combo box allows to select a library
+ *  This combo box allows selecting a library
  */
 class LAYBASIC_PUBLIC LibrarySelectionComboBox
   : public QComboBox
@@ -166,7 +166,7 @@ private:
 /**
  *  @brief A layer selection combo box
  *
- *  This combo box allows to select a (physical) layer from a layout
+ *  This combo box allows selecting a (physical) layer from a layout
  */
 class LAYBASIC_PUBLIC LayerSelectionComboBox
   : public QComboBox
@@ -254,7 +254,7 @@ private:
 /**
  *  @brief A cell view selection combo box
  *
- *  This combo box allows to select a cellview from a lay::LayoutView
+ *  This combo box allows selecting a cellview from a lay::LayoutView
  */
 class LAYBASIC_PUBLIC CellViewSelectionComboBox
   : public QComboBox
@@ -325,6 +325,7 @@ public:
   ColorButton (QWidget *parent, const char *name = 0);
 
   QColor get_color () const;
+  static void build_color_menu (QMenu *menu, QObject *receiver, const char *browse_slot, const char *selected_slot);
 
 signals:
   void color_changed (QColor color);

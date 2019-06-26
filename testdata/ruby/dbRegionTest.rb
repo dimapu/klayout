@@ -35,8 +35,10 @@ class DBRegion_TestClass < TestBase
     assert_equal(r.bbox.to_s, "()")
     assert_equal(r.is_merged?, true)
     assert_equal(r.is_box?, false)
+    data_id = r.data_id
     
     r.assign(RBA::Region::new(RBA::Box::new(10, 20, 100, 200)))
+    assert_equal(data_id != r.data_id, true)
     assert_equal(r.to_s, "(10,20;10,200;100,200;100,20)")
     assert_equal(r.is_empty?, false)
     assert_equal(r.size, 1)
@@ -48,6 +50,7 @@ class DBRegion_TestClass < TestBase
     assert_equal(r.moved(RBA::Point::new(10, 20)).bbox.to_s, "(20,40;110,220)")
     assert_equal(r.moved(10, 20).bbox.to_s, "(20,40;110,220)")
     rr = r.dup
+    assert_equal(rr.data_id != r.data_id, true)
     rr.move(RBA::Point::new(10, 20))
     assert_equal(rr.bbox.to_s, "(20,40;110,220)")
     rr = r.dup
@@ -346,6 +349,23 @@ class DBRegion_TestClass < TestBase
     r = r1 ^ r2
     assert_equal(r.holes.to_s, "(10,20;10,50;30,50;30,20);(40,20;40,50;60,50;60,20)")
     assert_equal(r.hulls.to_s, "(-10,-20;-10,200;100,200;100,-20);(-10,220;-10,400;100,400;100,220)")
+
+    r1 = RBA::Region::new
+    r1.insert(RBA::Box::new(0, 0, 1000, 100))
+    r1.insert(RBA::Box::new(900, 0, 1000, 1000))
+    r1.merge
+    r2 = r1.dup
+    r2.break(0, 0.0)
+    assert_equal(r2.to_s, "(0,0;0,100;900,100;900,1000;1000,1000;1000,0)")
+    r2 = r1.dup
+    r2.break(0, 3.0)
+    assert_equal(r2.to_s, "(0,0;0,100;1000,100;1000,0);(900,100;900,1000;1000,1000;1000,100)")
+    r2 = r1.dup
+    r2.break(4, 0.0)
+    assert_equal(r2.to_s, "(0,0;0,100;1000,100;1000,0);(900,100;900,1000;1000,1000;1000,100)")
+    r2 = r1.dup
+    r2.break(4, 3.0)
+    assert_equal(r2.to_s, "(0,0;0,100;1000,100;1000,0);(900,100;900,1000;1000,1000;1000,100)")
 
   end
 
@@ -769,6 +789,54 @@ class DBRegion_TestClass < TestBase
 
   end
 
+  # texts
+  def test_15
+
+    r = RBA::Region::new
+    t = r.texts("*", true)
+    assert_equal(t.to_s, "")
+
+    r.insert(RBA::Box::new(1, 2, 3, 4))
+    t = r.texts("*", true)
+    assert_equal(t.to_s, "")
+
+    ly = RBA::Layout::new
+    top = ly.create_cell("TOP")
+    l1 = ly.layer(1, 0)
+    top.shapes(l1).insert(RBA::Text::new("ABC", RBA::Trans::new(RBA::Vector::new(100, 200))))
+
+    r = RBA::Region::new(top.begin_shapes_rec(l1))
+    t = r.texts("*", true)
+    assert_equal(t.to_s, "(99,199;99,201;101,201;101,199)")
+    assert_equal(t.is_deep?, false)
+    t = r.texts("*", true, 10)
+    assert_equal(t.to_s, "(90,190;90,210;110,210;110,190)")
+    t = r.texts("A*", true, 10)
+    assert_equal(t.to_s, "(90,190;90,210;110,210;110,190)")
+    t = r.texts("A*", false, 10)
+    assert_equal(t.to_s, "")
+    t = r.texts("ABC", false, 10)
+    assert_equal(t.to_s, "(90,190;90,210;110,210;110,190)")
+
+    dss = RBA::DeepShapeStore::new
+    r = RBA::Region::new(top.begin_shapes_rec(l1))
+    t = r.texts(dss, "*", true)
+    assert_equal(t.to_s, "(99,199;99,201;101,201;101,199)")
+    assert_equal(t.is_deep?, true)
+
+    r = RBA::Region::new(top.begin_shapes_rec(l1))
+    t = r.texts_dots("*", true)
+    assert_equal(t.to_s, "(100,200;100,200)")
+    assert_equal(t.is_deep?, false)
+
+    dss = RBA::DeepShapeStore::new
+    r = RBA::Region::new(top.begin_shapes_rec(l1))
+    t = r.texts_dots(dss, "A*", true)
+    assert_equal(t.to_s, "(100,200;100,200)")
+    assert_equal(t.is_deep?, true)
+
+  end
+
   # deep region tests
   def test_deep1
 
@@ -778,6 +846,13 @@ class DBRegion_TestClass < TestBase
     dss = RBA::DeepShapeStore::new
     dss._create
     assert_equal(RBA::DeepShapeStore::instance_count, 1)
+    # do a little testing on the DSS:
+    dss.max_vertex_count = 8
+    assert_equal(dss.max_vertex_count, 8)
+    dss.max_area_ratio = 42.0
+    assert_equal(dss.max_area_ratio, 42.0)
+    dss.threads = 3
+    assert_equal(dss.threads, 3)
     dss = nil
     GC.start
     assert_equal(RBA::DeepShapeStore::instance_count, 0)
@@ -789,6 +864,7 @@ class DBRegion_TestClass < TestBase
     r = RBA::Region::new(ly.top_cell.begin_shapes_rec(l1), dss)
     rf = RBA::Region::new(ly.top_cell.begin_shapes_rec(l1))
 
+    assert_equal(r.is_deep?, true)
     assert_equal(r.area, 53120000)
     assert_equal(rf.area, 53120000)
 
@@ -807,6 +883,21 @@ class DBRegion_TestClass < TestBase
     end
     assert_equal(s1, {"INV2"=>1, "TOP"=>0, "TRANS"=>0})
     assert_equal(s2, {"INV2"=>0, "TOP"=>10, "TRANS"=>0})
+
+    target = RBA::Layout::new
+    target_top = target.add_cell("TOP")
+    target_li = target.layer
+    r.insert_into(target, target_top, target_li)
+    cells = []
+    target.each_cell { |c| cells << c.name }
+    assert_equal(cells.join(","), "TOP,INV2,TRANS")
+    assert_equal(RBA::Region::new(target.cell("TOP").shapes(target_li)).to_s, "")
+    assert_equal(RBA::Region::new(target.cell("INV2").shapes(target_li)).to_s, "(-1400,1800;-1400,3800;1400,3800;1400,1800)")
+    assert_equal(RBA::Region::new(target.cell("TRANS").shapes(target_li)).to_s, "")
+
+    r.flatten
+    assert_equal(r.is_deep?, false)
+    assert_equal(r.area, 53120000)
 
     # force destroy, so the unit tests pass on the next iteration
     dss._destroy

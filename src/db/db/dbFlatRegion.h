@@ -114,7 +114,12 @@ public:
   virtual RegionDelegate *merged_in_place ();
   virtual RegionDelegate *merged_in_place (bool min_coherence, unsigned int min_wc);
   virtual RegionDelegate *merged () const;
+  virtual RegionDelegate *merged (bool min_coherence, unsigned int min_wc) const
+  {
+    return db::AsIfFlatRegion::merged (min_coherence, min_wc);
+  }
 
+  virtual RegionDelegate *process_in_place (const PolygonProcessorBase &filter);
   virtual RegionDelegate *filter_in_place (const PolygonFilterBase &filter);
 
   virtual RegionDelegate *add_in_place (const Region &other);
@@ -171,16 +176,18 @@ public:
     }
   }
 
+  db::Shapes &raw_polygons () { return m_polygons; }
+
 protected:
   virtual void merged_semantics_changed ();
+  virtual void min_coherence_changed ();
   virtual Box compute_bbox () const;
   void invalidate_cache ();
   void set_is_merged (bool m);
 
 private:
   friend class AsIfFlatRegion;
-
-  db::Shapes &raw_polygons () { return m_polygons; }
+  friend class Region;
 
   FlatRegion &operator= (const FlatRegion &other);
 

@@ -55,18 +55,18 @@ public:
     //  .. nothing yet ..
   }
 
-  virtual void compute_local (db::Layout *layout, const db::ShapeInteractions &interactions, std::unordered_set<db::PolygonRef> &result) const
+  virtual void compute_local (db::Layout *layout, const db::shape_interactions<db::PolygonRef, db::PolygonRef> &interactions, std::unordered_set<db::PolygonRef> &result, size_t max_vertex_count, double area_ratio) const
   {
-    db::ShapeInteractions sized_interactions = interactions;
-    for (db::ShapeInteractions::iterator i = sized_interactions.begin (); i != sized_interactions.end (); ++i) {
-      for (db::ShapeInteractions::iterator2 j = i->second.begin (); j != i->second.end (); ++j) {
-        const db::PolygonRef &ref = interactions.shape (*j);
+    db::shape_interactions<db::PolygonRef, db::PolygonRef> sized_interactions = interactions;
+    for (db::shape_interactions<db::PolygonRef, db::PolygonRef>::iterator i = sized_interactions.begin (); i != sized_interactions.end (); ++i) {
+      for (db::shape_interactions<db::PolygonRef, db::PolygonRef>::iterator2 j = i->second.begin (); j != i->second.end (); ++j) {
+        const db::PolygonRef &ref = interactions.intruder_shape (*j);
         db::Polygon poly = ref.obj ().transformed (ref.trans ());
         poly.size (m_dist, m_dist);
-        sized_interactions.add_shape (*j, db::PolygonRef (poly, layout->shape_repository ()));
+        sized_interactions.add_intruder_shape (*j, db::PolygonRef (poly, layout->shape_repository ()));
       }
     }
-    BoolAndOrNotLocalOperation::compute_local (layout, sized_interactions, result);
+    BoolAndOrNotLocalOperation::compute_local (layout, sized_interactions, result, max_vertex_count, area_ratio);
   }
 
   db::Coord dist () const
@@ -91,26 +91,26 @@ public:
     //  .. nothing yet ..
   }
 
-  virtual void compute_local (db::Layout *layout, const db::ShapeInteractions &interactions, std::unordered_set<db::PolygonRef> &result) const
+  virtual void compute_local (db::Layout *layout, const db::shape_interactions<db::PolygonRef, db::PolygonRef> &interactions, std::unordered_set<db::PolygonRef> &result, size_t max_vertex_count, double area_ratio) const
   {
-    db::ShapeInteractions sized_interactions = interactions;
-    for (db::ShapeInteractions::iterator i = sized_interactions.begin (); i != sized_interactions.end (); ++i) {
+    db::shape_interactions<db::PolygonRef, db::PolygonRef> sized_interactions = interactions;
+    for (db::shape_interactions<db::PolygonRef, db::PolygonRef>::iterator i = sized_interactions.begin (); i != sized_interactions.end (); ++i) {
 
-      const db::PolygonRef &ref = interactions.shape (i->first);
+      const db::PolygonRef &ref = interactions.subject_shape (i->first);
       db::Polygon poly = ref.obj ().transformed (ref.trans ());
       poly.size (m_dist / 2, m_dist / 2);
-      sized_interactions.add_shape (i->first, db::PolygonRef (poly, layout->shape_repository ()));
+      sized_interactions.add_subject_shape (i->first, db::PolygonRef (poly, layout->shape_repository ()));
 
-      for (db::ShapeInteractions::iterator2 j = i->second.begin (); j != i->second.end (); ++j) {
-        const db::PolygonRef &ref = interactions.shape (*j);
+      for (db::shape_interactions<db::PolygonRef, db::PolygonRef>::iterator2 j = i->second.begin (); j != i->second.end (); ++j) {
+        const db::PolygonRef &ref = interactions.intruder_shape (*j);
         db::Polygon poly = ref.obj ().transformed (ref.trans ());
         poly.size (m_dist / 2, m_dist / 2);
-        sized_interactions.add_shape (*j, db::PolygonRef (poly, layout->shape_repository ()));
+        sized_interactions.add_intruder_shape (*j, db::PolygonRef (poly, layout->shape_repository ()));
       }
 
     }
 
-    SelfOverlapMergeLocalOperation::compute_local (layout, sized_interactions, result);
+    SelfOverlapMergeLocalOperation::compute_local (layout, sized_interactions, result, max_vertex_count, area_ratio);
   }
 
   db::Coord dist () const
@@ -140,15 +140,15 @@ static void normalize_layer (db::Layout &layout, unsigned int layer)
 }
 
 
-static std::string contexts_to_s (db::Layout *layout, db::LocalProcessorContexts &contexts)
+static std::string contexts_to_s (db::Layout *layout, db::local_processor_contexts<db::PolygonRef, db::PolygonRef, db::PolygonRef> &contexts)
 {
   std::string res;
 
   for (db::Layout::top_down_const_iterator i = layout->begin_top_down (); i != layout->end_top_down(); ++i) {
-    db::LocalProcessorContexts::iterator cc = contexts.context_map ().find (&layout->cell (*i));
+    db::local_processor_contexts<db::PolygonRef, db::PolygonRef, db::PolygonRef>::iterator cc = contexts.context_map ().find (&layout->cell (*i));
     if (cc != contexts.context_map ().end ()) {
       int index = 1;
-      for (db::LocalProcessorCellContexts::iterator j = cc->second.begin (); j != cc->second.end (); ++j) {
+      for (db::local_processor_cell_contexts<db::PolygonRef, db::PolygonRef, db::PolygonRef>::iterator j = cc->second.begin (); j != cc->second.end (); ++j) {
         res += tl::sprintf ("%s[%d] %d insts, %d shapes (%d times)\n", layout->cell_name (*i), index, int (j->first.first.size ()), int (j->first.second.size ()), int (j->second.size ()));
         index += 1;
       }
@@ -203,7 +203,7 @@ static void run_test_bool_gen (tl::TestBase *_this, const char *file, TestMode m
     normalize_layer (layout_org, l2);
   }
 
-  db::LocalOperation *lop = 0;
+  db::local_operation<db::PolygonRef, db::PolygonRef, db::PolygonRef> *lop = 0;
   db::BoolAndOrNotLocalOperation bool_op (mode == TMAnd || mode == TMAndSwapped);
   db::SelfOverlapMergeLocalOperation self_intersect_op (2);
   BoolAndOrNotWithSizedLocalOperation sized_bool_op (mode == TMAnd || mode == TMAndSwapped, dist);
@@ -224,13 +224,15 @@ static void run_test_bool_gen (tl::TestBase *_this, const char *file, TestMode m
 
   if (single) {
 
-    db::LocalProcessor proc (&layout_org, &layout_org.cell (*layout_org.begin_top_down ()));
+    db::local_processor<db::PolygonRef, db::PolygonRef, db::PolygonRef> proc (&layout_org, &layout_org.cell (*layout_org.begin_top_down ()));
     proc.set_threads (nthreads);
+    proc.set_area_ratio (3.0);
+    proc.set_max_vertex_count (16);
 
     if (! context_doc) {
       proc.run (lop, l1, l2, lout);
     } else {
-      db::LocalProcessorContexts contexts;
+      db::local_processor_contexts<db::PolygonRef, db::PolygonRef, db::PolygonRef> contexts;
       proc.compute_contexts (contexts, lop, l1, l2);
       *context_doc = contexts_to_s (&layout_org, contexts);
       proc.compute_results (contexts, lop, lout);
@@ -240,13 +242,15 @@ static void run_test_bool_gen (tl::TestBase *_this, const char *file, TestMode m
 
     db::Layout layout_org2 = layout_org;
 
-    db::LocalProcessor proc (&layout_org, &layout_org.cell (*layout_org.begin_top_down ()), &layout_org2, &layout_org2.cell (*layout_org2.begin_top_down ()));
+    db::local_processor<db::PolygonRef, db::PolygonRef, db::PolygonRef> proc (&layout_org, &layout_org.cell (*layout_org.begin_top_down ()), &layout_org2, &layout_org2.cell (*layout_org2.begin_top_down ()));
     proc.set_threads (nthreads);
+    proc.set_area_ratio (3.0);
+    proc.set_max_vertex_count (16);
 
     if (! context_doc) {
       proc.run (lop, l1, l2, lout);
     } else {
-      db::LocalProcessorContexts contexts;
+      db::local_processor_contexts<db::PolygonRef, db::PolygonRef, db::PolygonRef> contexts;
       proc.compute_contexts (contexts, lop, l1, l2);
       *context_doc = contexts_to_s (&layout_org, contexts);
       proc.compute_results (contexts, lop, lout);
@@ -704,13 +708,13 @@ TEST(TwoInputsNot5)
 TEST(TwoInputsAnd6)
 {
   //  Extreme variants (copy, vanishing), AND
-  run_test_bool2 (_this, "hlp6.oas", TMAnd, 100);
+  run_test_bool2 (_this, "hlp6.oas", TMAnd, 120);
 }
 
 TEST(TwoInputsNot6)
 {
   //  Extreme variants (copy, vanishing), NOT
-  run_test_bool2 (_this, "hlp6.oas", TMNot, 101);
+  run_test_bool2 (_this, "hlp6.oas", TMNot, 121);
 }
 
 TEST(TwoInputsAnd7)
@@ -844,13 +848,13 @@ TEST(TwoInputsNotWithSize5)
 TEST(TwoInputsAndWithSize6)
 {
   //  Extreme variants (copy, vanishing), AND
-  run_test_bool2_with_size (_this, "hlp6.oas", TMAnd, 1500, 102);
+  run_test_bool2_with_size (_this, "hlp6.oas", TMAnd, 1500, 122);
 }
 
 TEST(TwoInputsNotWithSize6)
 {
   //  Extreme variants (copy, vanishing), NOT
-  run_test_bool2_with_size (_this, "hlp6.oas", TMNot, 1500, 103);
+  run_test_bool2_with_size (_this, "hlp6.oas", TMNot, 1500, 123);
 }
 
 TEST(TwoInputsAndWithSize7)
@@ -1070,3 +1074,48 @@ TEST(TopWithBelow2)
 {
   run_test_bool (_this, "hlp12.oas", TMNotSwapped, 101);
 }
+
+TEST(BasicHierarchyVariantsAnd)
+{
+  run_test_bool (_this, "hlp13.oas", TMAnd, 100);
+}
+
+TEST(BasicHierarchyVariantsNot)
+{
+  run_test_bool (_this, "hlp13.oas", TMNot, 101);
+}
+
+TEST(BasicHierarchyVariantsAnd2)
+{
+  run_test_bool (_this, "hlp14.oas", TMAnd, 100);
+}
+
+TEST(BasicHierarchyVariantsNot2)
+{
+  run_test_bool (_this, "hlp14.oas", TMNot, 101);
+}
+
+TEST(RedundantHierarchyAnd1)
+{
+  //  Redundant hierarchy, NOT
+  run_test_bool2 (_this, "hlp15.oas", TMAnd, 100);
+}
+
+TEST(RedundantHierarchyNot1)
+{
+  //  Redundant hierarchy, NOT
+  run_test_bool2 (_this, "hlp15.oas", TMNot, 101);
+}
+
+TEST(RedundantHierarchyAnd2)
+{
+  //  Redundant hierarchy, NOT
+  run_test_bool2 (_this, "hlp16.gds", TMAnd, 100);
+}
+
+TEST(RedundantHierarchyNot2)
+{
+  //  Redundant hierarchy, NOT
+  run_test_bool2 (_this, "hlp16.gds", TMNot, 101);
+}
+

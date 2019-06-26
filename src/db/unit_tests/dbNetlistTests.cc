@@ -22,11 +22,14 @@
 
 
 #include "dbNetlist.h"
+#include "dbNetlistDeviceClasses.h"
 
 #include "tlUnitTest.h"
 #include "tlString.h"
 
 #include <memory>
+
+// ----------------------------------------------------------------------------------------
 
 static std::string pd2string (const db::DeviceTerminalDefinition &pd)
 {
@@ -36,78 +39,6 @@ static std::string pd2string (const db::DeviceTerminalDefinition &pd)
 static std::string pd2string (const db::DeviceParameterDefinition &pd)
 {
   return pd.name () + "(" + pd.description () + ")=" + tl::to_string (pd.default_value ()) + " #" + tl::to_string (pd.id ());
-}
-
-TEST(1_DeviceTerminalDefinition)
-{
-  db::DeviceTerminalDefinition pd;
-
-  EXPECT_EQ (pd2string (pd), "() #0");
-  pd.set_name ("name");
-  pd.set_description ("nothing yet");
-  EXPECT_EQ (pd2string (pd), "name(nothing yet) #0");
-
-  db::DeviceTerminalDefinition pd2;
-  pd2 = pd;
-  EXPECT_EQ (pd2string (pd2), "name(nothing yet) #0");
-  pd2.set_name ("name2");
-  pd2.set_description ("now it has something");
-  EXPECT_EQ (pd2string (pd2), "name2(now it has something) #0");
-
-  db::DeviceClass dc;
-  dc.add_terminal_definition (pd);
-  dc.add_terminal_definition (pd2);
-  EXPECT_EQ (pd2string (dc.terminal_definitions ()[0]), "name(nothing yet) #0");
-  EXPECT_EQ (pd2string (dc.terminal_definitions ()[1]), "name2(now it has something) #1");
-
-  dc.clear_terminal_definitions ();
-  EXPECT_EQ (dc.terminal_definitions ().empty (), true);
-
-  db::DeviceParameterDefinition ppd ("P1", "Parameter 1", 1.0);
-  dc.add_parameter_definition (ppd);
-
-  db::DeviceParameterDefinition ppd2 ("P2", "Parameter 2");
-  dc.add_parameter_definition (ppd2);
-
-  EXPECT_EQ (pd2string (dc.parameter_definitions ()[0]), "P1(Parameter 1)=1 #0");
-  EXPECT_EQ (pd2string (dc.parameter_definitions ()[1]), "P2(Parameter 2)=0 #1");
-
-  dc.clear_parameter_definitions ();
-  EXPECT_EQ (dc.parameter_definitions ().empty (), true);
-}
-
-TEST(2_DeviceClass)
-{
-  db::DeviceTerminalDefinition pd;
-  pd.set_name ("name");
-  pd.set_description ("nothing yet");
-
-  db::DeviceTerminalDefinition pd2;
-  pd2.set_name ("name2");
-  pd2.set_description ("now it has something");
-
-  db::DeviceClass dc;
-  dc.set_name ("devname");
-  dc.set_description ("devdesc");
-  EXPECT_EQ (dc.name (), "devname");
-  EXPECT_EQ (dc.description (), "devdesc");
-  dc.add_terminal_definition (pd);
-  dc.add_terminal_definition (pd2);
-  EXPECT_EQ (dc.terminal_definitions ().size (), size_t (2));
-  EXPECT_EQ (pd2string (dc.terminal_definitions ()[0]), "name(nothing yet) #0");
-  EXPECT_EQ (pd2string (dc.terminal_definitions ()[1]), "name2(now it has something) #1");
-
-  EXPECT_EQ (pd2string (*dc.terminal_definition (dc.terminal_definitions ()[0].id ())), "name(nothing yet) #0");
-  EXPECT_EQ (pd2string (*dc.terminal_definition (dc.terminal_definitions ()[1].id ())), "name2(now it has something) #1");
-  EXPECT_EQ (dc.terminal_definition (3), 0);
-
-  db::DeviceClass dc2 = dc;
-  EXPECT_EQ (dc2.name (), "devname");
-  EXPECT_EQ (dc2.description (), "devdesc");
-  EXPECT_EQ (dc2.terminal_definitions ().size (), size_t (2));
-  EXPECT_EQ (pd2string (*dc2.terminal_definition (dc2.terminal_definitions ()[0].id ())), "name(nothing yet) #0");
-  EXPECT_EQ (pd2string (*dc2.terminal_definition (dc2.terminal_definitions ()[1].id ())), "name2(now it has something) #1");
-  EXPECT_EQ (dc2.terminal_definition (3), 0);
 }
 
 static std::string pins2string (const db::Circuit &c)
@@ -121,32 +52,6 @@ static std::string pins2string (const db::Circuit &c)
     res += "#" + tl::to_string (i->id ());
   }
   return res;
-}
-
-TEST(3_CircuitBasic)
-{
-  db::Circuit c;
-  c.set_name ("name");
-  EXPECT_EQ (c.name (), "name");
-
-  db::Pin p1 = c.add_pin ("p1");
-  db::Pin p2 = c.add_pin ("p2");
-  EXPECT_EQ (pins2string (c), "p1#0,p2#1");
-
-  EXPECT_EQ (c.pin_by_id (0)->name (), "p1");
-  EXPECT_EQ (c.pin_by_id (1)->name (), "p2");
-  EXPECT_EQ (c.pin_by_id (2), 0);
-  EXPECT_EQ (c.pin_by_name ("p1")->name (), "p1");
-  EXPECT_EQ (c.pin_by_name ("doesnt_exist") == 0, true);
-  EXPECT_EQ (c.pin_by_name ("p2")->name (), "p2");
-
-  db::Circuit c2 = c;
-  EXPECT_EQ (c2.name (), "name");
-  EXPECT_EQ (pins2string (c), "p1#0,p2#1");
-
-  EXPECT_EQ (c2.pin_by_id (0)->name (), "p1");
-  EXPECT_EQ (c2.pin_by_id (1)->name (), "p2");
-  EXPECT_EQ (c2.pin_by_id (2), 0);
 }
 
 static std::string net2string (const db::Net &n)
@@ -220,7 +125,11 @@ static std::string netlist2 (const db::Circuit &c)
       pins += "=";
       pins += net ? net->name () : std::string ("(null)");
     }
-    res += "  D" + d->name () + ":" + pins + "\n";
+    res += "  D" + d->name ();
+    if (d->device_abstract ()) {
+      res += "/" + d->device_abstract ()->name ();
+    }
+    res += ":" + pins + "\n";
   }
 
   for (db::Circuit::const_subcircuit_iterator s = c.begin_subcircuits (); s != c.end_subcircuits (); ++s) {
@@ -241,6 +150,205 @@ static std::string netlist2 (const db::Circuit &c)
   }
 
   return res;
+}
+
+static std::string nl2string (const db::Netlist &nl)
+{
+  std::string res;
+  for (db::Netlist::const_circuit_iterator c = nl.begin_circuits (); c != nl.end_circuits (); ++c) {
+    res += "[" + c->name () + "]\n";
+    res += nets2string (*c);
+  }
+  return res;
+}
+
+//  dual form of netlist
+static std::string netlist2 (const db::Netlist &nl)
+{
+  std::string res;
+  for (db::Netlist::const_circuit_iterator c = nl.begin_circuits (); c != nl.end_circuits (); ++c) {
+    res += netlist2 (*c);
+  }
+  return res;
+}
+
+static std::string refs2string (const db::Circuit *c)
+{
+  std::string res;
+  for (db::Circuit::const_refs_iterator r = c->begin_refs (); r != c->end_refs (); ++r) {
+    if (!res.empty ()) {
+      res += ",";
+    }
+    res += r->name ();
+  }
+  return res;
+}
+
+static std::string children2string (const db::Circuit *c)
+{
+  std::string res;
+  for (db::Circuit::const_child_circuit_iterator r = c->begin_children (); r != c->end_children (); ++r) {
+    if (!res.empty ()) {
+      res += ",";
+    }
+    res += r->name ();
+  }
+  return res;
+}
+
+static std::string parents2string (const db::Circuit *c)
+{
+  std::string res;
+  for (db::Circuit::const_parent_circuit_iterator r = c->begin_parents (); r != c->end_parents (); ++r) {
+    if (!res.empty ()) {
+      res += ",";
+    }
+    res += r->name ();
+  }
+  return res;
+}
+
+static std::string td2string (const db::Netlist *nl)
+{
+  std::string res;
+  for (db::Netlist::const_top_down_circuit_iterator r = nl->begin_top_down (); r != nl->end_top_down (); ++r) {
+    if (!res.empty ()) {
+      res += ",";
+    }
+    res += r->name ();
+  }
+  return res;
+}
+
+static std::string bu2string (const db::Netlist *nl)
+{
+  std::string res;
+  for (db::Netlist::const_bottom_up_circuit_iterator r = nl->begin_bottom_up (); r != nl->end_bottom_up (); ++r) {
+    if (!res.empty ()) {
+      res += ",";
+    }
+    res += r->name ();
+  }
+  return res;
+}
+
+// ----------------------------------------------------------------------------------------
+
+TEST(0_DeviceClassTemplates)
+{
+  db::DeviceClassMOS3Transistor mos3;
+  db::DeviceClass generic;
+
+  EXPECT_EQ (db::DeviceClassTemplateBase::template_by_name ("MOS3") != 0, true);
+  EXPECT_EQ (db::DeviceClassTemplateBase::template_by_name ("RES") != 0, true);
+  EXPECT_EQ (db::DeviceClassTemplateBase::template_by_name ("DOESNTEXIST") == 0, true);
+  EXPECT_EQ (db::DeviceClassTemplateBase::template_by_name ("MOS3")->is_of (&mos3), true);
+  EXPECT_EQ (db::DeviceClassTemplateBase::template_by_name ("RES")->is_of (&mos3), false);
+  EXPECT_EQ (db::DeviceClassTemplateBase::is_a (&mos3) != 0, true);
+  EXPECT_EQ (db::DeviceClassTemplateBase::is_a (&generic) == 0, true);
+  EXPECT_EQ (db::DeviceClassTemplateBase::is_a (&mos3)->name (), "MOS3");
+}
+
+// ----------------------------------------------------------------------------------------
+
+TEST(1_DeviceTerminalDefinition)
+{
+  db::DeviceTerminalDefinition pd;
+
+  EXPECT_EQ (pd2string (pd), "() #0");
+  pd.set_name ("name");
+  pd.set_description ("nothing yet");
+  EXPECT_EQ (pd2string (pd), "name(nothing yet) #0");
+
+  db::DeviceTerminalDefinition pd2;
+  pd2 = pd;
+  EXPECT_EQ (pd2string (pd2), "name(nothing yet) #0");
+  pd2.set_name ("name2");
+  pd2.set_description ("now it has something");
+  EXPECT_EQ (pd2string (pd2), "name2(now it has something) #0");
+
+  db::DeviceClass dc;
+  dc.add_terminal_definition (pd);
+  dc.add_terminal_definition (pd2);
+  EXPECT_EQ (pd2string (dc.terminal_definitions ()[0]), "name(nothing yet) #0");
+  EXPECT_EQ (pd2string (dc.terminal_definitions ()[1]), "name2(now it has something) #1");
+
+  dc.clear_terminal_definitions ();
+  EXPECT_EQ (dc.terminal_definitions ().empty (), true);
+
+  db::DeviceParameterDefinition ppd ("P1", "Parameter 1", 1.0, false);
+  dc.add_parameter_definition (ppd);
+  EXPECT_EQ (ppd.is_primary (), false);
+
+  db::DeviceParameterDefinition ppd2 ("P2", "Parameter 2");
+  dc.add_parameter_definition (ppd2);
+  EXPECT_EQ (ppd2.is_primary (), true);
+
+  EXPECT_EQ (pd2string (dc.parameter_definitions ()[0]), "P1(Parameter 1)=1 #0");
+  EXPECT_EQ (pd2string (dc.parameter_definitions ()[1]), "P2(Parameter 2)=0 #1");
+
+  dc.clear_parameter_definitions ();
+  EXPECT_EQ (dc.parameter_definitions ().empty (), true);
+}
+
+TEST(2_DeviceClass)
+{
+  db::DeviceTerminalDefinition pd;
+  pd.set_name ("name");
+  pd.set_description ("nothing yet");
+
+  db::DeviceTerminalDefinition pd2;
+  pd2.set_name ("name2");
+  pd2.set_description ("now it has something");
+
+  db::DeviceClass dc;
+  dc.set_name ("devname");
+  dc.set_description ("devdesc");
+  EXPECT_EQ (dc.name (), "devname");
+  EXPECT_EQ (dc.description (), "devdesc");
+  dc.add_terminal_definition (pd);
+  dc.add_terminal_definition (pd2);
+  EXPECT_EQ (dc.terminal_definitions ().size (), size_t (2));
+  EXPECT_EQ (pd2string (dc.terminal_definitions ()[0]), "name(nothing yet) #0");
+  EXPECT_EQ (pd2string (dc.terminal_definitions ()[1]), "name2(now it has something) #1");
+
+  EXPECT_EQ (pd2string (*dc.terminal_definition (dc.terminal_definitions ()[0].id ())), "name(nothing yet) #0");
+  EXPECT_EQ (pd2string (*dc.terminal_definition (dc.terminal_definitions ()[1].id ())), "name2(now it has something) #1");
+  EXPECT_EQ (dc.terminal_definition (3), 0);
+
+  db::DeviceClass dc2 = dc;
+  EXPECT_EQ (dc2.name (), "devname");
+  EXPECT_EQ (dc2.description (), "devdesc");
+  EXPECT_EQ (dc2.terminal_definitions ().size (), size_t (2));
+  EXPECT_EQ (pd2string (*dc2.terminal_definition (dc2.terminal_definitions ()[0].id ())), "name(nothing yet) #0");
+  EXPECT_EQ (pd2string (*dc2.terminal_definition (dc2.terminal_definitions ()[1].id ())), "name2(now it has something) #1");
+  EXPECT_EQ (dc2.terminal_definition (3), 0);
+}
+
+TEST(3_CircuitBasic)
+{
+  db::Circuit c;
+  c.set_name ("name");
+  EXPECT_EQ (c.name (), "name");
+
+  db::Pin p1 = c.add_pin ("p1");
+  db::Pin p2 = c.add_pin ("p2");
+  EXPECT_EQ (pins2string (c), "p1#0,p2#1");
+
+  EXPECT_EQ (c.pin_by_id (0)->name (), "p1");
+  EXPECT_EQ (c.pin_by_id (1)->name (), "p2");
+  EXPECT_EQ (c.pin_by_id (2), 0);
+  EXPECT_EQ (c.pin_by_name ("p1")->name (), "p1");
+  EXPECT_EQ (c.pin_by_name ("doesnt_exist") == 0, true);
+  EXPECT_EQ (c.pin_by_name ("p2")->name (), "p2");
+
+  db::Circuit c2 = c;
+  EXPECT_EQ (c2.name (), "name");
+  EXPECT_EQ (pins2string (c), "p1#0,p2#1");
+
+  EXPECT_EQ (c2.pin_by_id (0)->name (), "p1");
+  EXPECT_EQ (c2.pin_by_id (1)->name (), "p2");
+  EXPECT_EQ (c2.pin_by_id (2), 0);
 }
 
 TEST(4_CircuitDevices)
@@ -403,38 +511,6 @@ TEST(4_CircuitDevices)
   );
 }
 
-static std::string nl2string (const db::Netlist &nl)
-{
-  std::string res;
-  for (db::Netlist::const_circuit_iterator c = nl.begin_circuits (); c != nl.end_circuits (); ++c) {
-    res += "[" + c->name () + "]\n";
-    res += nets2string (*c);
-  }
-  return res;
-}
-
-//  dual form of netlist
-static std::string netlist2 (const db::Netlist &nl)
-{
-  std::string res;
-  for (db::Netlist::const_circuit_iterator c = nl.begin_circuits (); c != nl.end_circuits (); ++c) {
-    res += netlist2 (*c);
-  }
-  return res;
-}
-
-static std::string refs2string (const db::Circuit *c)
-{
-  std::string res;
-  for (db::Circuit::const_refs_iterator r = c->begin_refs (); r != c->end_refs (); ++r) {
-    if (!res.empty ()) {
-      res += ",";
-    }
-    res += r->name ();
-  }
-  return res;
-}
-
 TEST(4_NetlistSubcircuits)
 {
   std::auto_ptr<db::Netlist> nl (new db::Netlist ());
@@ -444,6 +520,17 @@ TEST(4_NetlistSubcircuits)
   dc->add_terminal_definition (db::DeviceTerminalDefinition ("A", ""));
   dc->add_terminal_definition (db::DeviceTerminalDefinition ("B", ""));
   nl->add_device_class (dc);
+
+  std::auto_ptr<db::Netlist> nldup (new db::Netlist ());
+  nldup->add_device_class (dc->clone ());
+
+  db::DeviceAbstract *dm = new db::DeviceAbstract ();
+  dm->set_device_class (dc);
+  EXPECT_EQ (dm->device_class () == dc, true);
+  dm->set_name ("dm2");
+  dm->set_cell_index (42);
+  dm->set_cluster_id_for_terminal (0, 17);
+  nl->add_device_abstract (dm);
 
   db::Circuit *c1 = new db::Circuit ();
   c1->set_cell_index (17);
@@ -474,8 +561,9 @@ TEST(4_NetlistSubcircuits)
   EXPECT_EQ (nl->circuit_by_cell_index (41) == 0, true);
   EXPECT_EQ (nl->circuit_by_cell_index (42) == c2, true);
 
-  db::Device *d = new db::Device (dc, "D");
+  db::Device *d = new db::Device (dc, dm, "D");
   c2->add_device (d);
+  EXPECT_EQ (d->device_abstract ()->name (), "dm2");
 
   EXPECT_EQ (refs2string (c2), "");
   db::SubCircuit *sc1 = new db::SubCircuit (c2);
@@ -544,12 +632,34 @@ TEST(4_NetlistSubcircuits)
     "D:B,+c2p2\n"
   );
 
+  EXPECT_EQ (nl->to_string (),
+    "circuit c1 (c1p1=n1a,c1p2=n1c);\n"
+    "  subcircuit c2 sc1 (c2p1=n1a,c2p2=n1b);\n"
+    "  subcircuit c2 sc2 (c2p1=n1b,c2p2=n1c);\n"
+    "end;\n"
+    "circuit c2 (c2p1=n2a,c2p2=n2b);\n"
+    "  device dc2 D (A=n2a,B=n2b) ();\n"
+    "end;\n"
+  );
+
+  nldup->from_string (nl->to_string ());
+
+  EXPECT_EQ (nldup->to_string (),
+    "circuit c1 (c1p1=n1a,c1p2=n1c);\n"
+    "  subcircuit c2 sc1 (c2p1=n1a,c2p2=n1b);\n"
+    "  subcircuit c2 sc2 (c2p1=n1b,c2p2=n1c);\n"
+    "end;\n"
+    "circuit c2 (c2p1=n2a,c2p2=n2b);\n"
+    "  device dc2 D (A=n2a,B=n2b) ();\n"
+    "end;\n"
+  );
+
   EXPECT_EQ (netlist2 (*nl),
     "c1:c1p1=n1a,c1p2=n1c\n"
     "  Xsc1:c2p1=n1a,c2p2=n1b\n"
     "  Xsc2:c2p1=n1b,c2p2=n1c\n"
     "c2:c2p1=n2a,c2p2=n2b\n"
-    "  DD:A=n2a,B=n2b\n"
+    "  DD/dm2:A=n2a,B=n2b\n"
   );
 
   //  check netlist
@@ -584,7 +694,7 @@ TEST(4_NetlistSubcircuits)
     "  Xsc1:c2p1=n1a,c2p2=n1b\n"
     "  Xsc2:c2p1=n1b,c2p2=n1c\n"
     "c2:c2p1=n2a,c2p2=n2b\n"
-    "  DD:A=n2a,B=n2b\n"
+    "  DD/dm2:A=n2a,B=n2b\n"
   );
 
   //  check netlist
@@ -897,54 +1007,6 @@ TEST(11_NetlistCircuitRefs)
   EXPECT_EQ (refs2string (c2), "sc1,sc2");
 }
 
-static std::string children2string (const db::Circuit *c)
-{
-  std::string res;
-  for (db::Circuit::const_child_circuit_iterator r = c->begin_children (); r != c->end_children (); ++r) {
-    if (!res.empty ()) {
-      res += ",";
-    }
-    res += (*r)->name ();
-  }
-  return res;
-}
-
-static std::string parents2string (const db::Circuit *c)
-{
-  std::string res;
-  for (db::Circuit::const_parent_circuit_iterator r = c->begin_parents (); r != c->end_parents (); ++r) {
-    if (!res.empty ()) {
-      res += ",";
-    }
-    res += (*r)->name ();
-  }
-  return res;
-}
-
-static std::string td2string (const db::Netlist *nl)
-{
-  std::string res;
-  for (db::Netlist::const_top_down_circuit_iterator r = nl->begin_top_down (); r != nl->end_top_down (); ++r) {
-    if (!res.empty ()) {
-      res += ",";
-    }
-    res += (*r)->name ();
-  }
-  return res;
-}
-
-static std::string bu2string (const db::Netlist *nl)
-{
-  std::string res;
-  for (db::Netlist::const_bottom_up_circuit_iterator r = nl->begin_bottom_up (); r != nl->end_bottom_up (); ++r) {
-    if (!res.empty ()) {
-      res += ",";
-    }
-    res += (*r)->name ();
-  }
-  return res;
-}
-
 TEST(12_NetlistTopology)
 {
   std::auto_ptr<db::Netlist> nl (new db::Netlist ());
@@ -961,8 +1023,8 @@ TEST(12_NetlistTopology)
   c2->set_name ("c2");
   nl->add_circuit (c2);
   EXPECT_EQ (nl->top_circuit_count (), size_t (2));
-  EXPECT_EQ (td2string (nl.get ()), "c1,c2");
-  EXPECT_EQ (bu2string (nl.get ()), "c2,c1");
+  EXPECT_EQ (td2string (nl.get ()), "c2,c1");
+  EXPECT_EQ (bu2string (nl.get ()), "c1,c2");
 
   std::auto_ptr<db::NetlistLocker> locker (new db::NetlistLocker (nl.get ()));
 
@@ -972,14 +1034,14 @@ TEST(12_NetlistTopology)
 
   //  because we locked, it did not get updated:
   EXPECT_EQ (nl->top_circuit_count (), size_t (2));
-  EXPECT_EQ (td2string (nl.get ()), "c1,c2");
-  EXPECT_EQ (bu2string (nl.get ()), "c2,c1");
+  EXPECT_EQ (td2string (nl.get ()), "c2,c1");
+  EXPECT_EQ (bu2string (nl.get ()), "c1,c2");
   locker.reset (0);
 
   //  after removing the lock, it's updated
   EXPECT_EQ (nl->top_circuit_count (), size_t (3));
-  EXPECT_EQ (td2string (nl.get ()), "c1,c2,c3");
-  EXPECT_EQ (bu2string (nl.get ()), "c3,c2,c1");
+  EXPECT_EQ (td2string (nl.get ()), "c3,c2,c1");
+  EXPECT_EQ (bu2string (nl.get ()), "c1,c2,c3");
 
   db::SubCircuit *sc1 = new db::SubCircuit (c2);
   sc1->set_name ("sc1");
@@ -987,8 +1049,8 @@ TEST(12_NetlistTopology)
   EXPECT_EQ (children2string (c1), "c2");
   EXPECT_EQ (parents2string (c2), "c1");
   EXPECT_EQ (nl->top_circuit_count (), size_t (2));
-  EXPECT_EQ (td2string (nl.get ()), "c1,c3,c2");
-  EXPECT_EQ (bu2string (nl.get ()), "c2,c3,c1");
+  EXPECT_EQ (td2string (nl.get ()), "c3,c1,c2");
+  EXPECT_EQ (bu2string (nl.get ()), "c2,c1,c3");
 
   db::SubCircuit *sc2 = new db::SubCircuit (c2);
   sc2->set_name ("sc2");
@@ -996,8 +1058,8 @@ TEST(12_NetlistTopology)
   EXPECT_EQ (children2string (c1), "c2");
   EXPECT_EQ (parents2string (c2), "c1");
   EXPECT_EQ (nl->top_circuit_count (), size_t (2));
-  EXPECT_EQ (td2string (nl.get ()), "c1,c3,c2");
-  EXPECT_EQ (bu2string (nl.get ()), "c2,c3,c1");
+  EXPECT_EQ (td2string (nl.get ()), "c3,c1,c2");
+  EXPECT_EQ (bu2string (nl.get ()), "c2,c1,c3");
 
   db::SubCircuit *sc3 = new db::SubCircuit (c3);
   sc3->set_name ("sc3");
@@ -1008,8 +1070,8 @@ TEST(12_NetlistTopology)
   EXPECT_EQ (parents2string (c2), "c1");
   EXPECT_EQ (parents2string (c3), "c1");
   EXPECT_EQ (nl->top_circuit_count (), size_t (1));
-  EXPECT_EQ (td2string (nl.get ()), "c1,c2,c3");
-  EXPECT_EQ (bu2string (nl.get ()), "c3,c2,c1");
+  EXPECT_EQ (td2string (nl.get ()), "c1,c3,c2");
+  EXPECT_EQ (bu2string (nl.get ()), "c2,c3,c1");
 
   db::SubCircuit *sc4 = new db::SubCircuit (*sc2);
   sc4->set_name ("sc4");
@@ -1023,4 +1085,215 @@ TEST(12_NetlistTopology)
   EXPECT_EQ (nl->top_circuit_count (), size_t (1));
   EXPECT_EQ (td2string (nl.get ()), "c1,c3,c2");
   EXPECT_EQ (bu2string (nl.get ()), "c2,c3,c1");
+}
+
+TEST(13_DeviceAbstract)
+{
+  db::Netlist nl;
+
+  db::DeviceAbstract *dm = new db::DeviceAbstract (0, "name");
+  nl.add_device_abstract (dm);
+  EXPECT_EQ (dm->netlist () == &nl, true);
+
+  EXPECT_EQ (dm->device_class () == 0, true);
+  EXPECT_EQ (dm->name (), "name");
+  EXPECT_EQ (nl.device_abstract_by_name ("name") == dm, true);
+  EXPECT_EQ (nl.device_abstract_by_name ("name2") == 0, true);
+  EXPECT_EQ (nl.device_abstract_by_name ("does_not_exist") == 0, true);
+  dm->set_name ("name2");
+  EXPECT_EQ (dm->name (), "name2");
+  EXPECT_EQ (nl.device_abstract_by_name ("name") == 0, true);
+  EXPECT_EQ (nl.device_abstract_by_name ("name2") == dm, true);
+  EXPECT_EQ (nl.device_abstract_by_name ("does_not_exist") == 0, true);
+
+  dm->set_cluster_id_for_terminal (1, 17);
+  dm->set_cluster_id_for_terminal (0, 42);
+  EXPECT_EQ (dm->cluster_id_for_terminal (0), size_t (42));
+  EXPECT_EQ (dm->cluster_id_for_terminal (1), size_t (17));
+
+  dm->set_cell_index (5);
+  EXPECT_EQ (nl.device_abstract_by_cell_index (5) == dm, true);
+  EXPECT_EQ (nl.device_abstract_by_cell_index (17) == 0, true);
+  EXPECT_EQ (dm->cell_index (), db::cell_index_type (5));
+
+  EXPECT_EQ (nl.begin_device_abstracts () == nl.end_device_abstracts (), false);
+  EXPECT_EQ (nl.begin_device_abstracts ()->name (), "name2");
+
+  nl.remove_device_abstract (dm);
+
+  EXPECT_EQ (nl.begin_device_abstracts () == nl.end_device_abstracts (), true);
+}
+
+TEST(20_FlattenSubCircuit)
+{
+  db::Netlist nl;
+
+  db::DeviceClass *dc;
+
+  dc = new db::DeviceClassMOS3Transistor ();
+  dc->set_name ("NMOS");
+  nl.add_device_class (dc);
+
+  dc = new db::DeviceClassMOS3Transistor ();
+  dc->set_name ("PMOS");
+  nl.add_device_class (dc);
+
+  nl.from_string (
+    "circuit INV2 (IN=IN,$2=$2,OUT=OUT,$4=$4,$5=$5);\n"
+    "  subcircuit PTRANS SC1 ($1=$5,$2=$2,$3=IN);\n"
+    "  subcircuit NTRANS SC2 ($1=$4,$2=$2,$3=IN);\n"
+    "  subcircuit PTRANS SC3 ($1=$5,$2=OUT,$3=$2);\n"
+    "  subcircuit NTRANS SC4 ($1=$4,$2=OUT,$3=$2);\n"
+    "end;\n"
+    "circuit PTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device PMOS $1 (S=$1,D=$2,G=$3) (L=0.25,W=0.95);\n"
+    "end;\n"
+    "circuit NTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device NMOS $1 (S=$1,D=$2,G=$3) (L=0.25,W=0.95);\n"
+    "end;\n"
+  );
+
+  db::Netlist nl2;
+
+  nl2 = nl;
+  db::Circuit *inv2 = nl2.circuit_by_name ("INV2");
+  inv2->flatten_subcircuit (inv2->subcircuit_by_name ("SC1"));
+
+  EXPECT_EQ (nl2.to_string (),
+    "circuit INV2 (IN=IN,$2=$2,OUT=OUT,$4=$4,$5=$5);\n"
+    "  device PMOS $1 (S=$5,G=IN,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "  subcircuit NTRANS SC2 ($1=$4,$2=$2,$3=IN);\n"
+    "  subcircuit PTRANS SC3 ($1=$5,$2=OUT,$3=$2);\n"
+    "  subcircuit NTRANS SC4 ($1=$4,$2=OUT,$3=$2);\n"
+    "end;\n"
+    "circuit PTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device PMOS $1 (S=$1,G=$3,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+    "circuit NTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device NMOS $1 (S=$1,G=$3,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+  );
+
+  nl2.flatten_circuit (nl2.circuit_by_name ("PTRANS"));
+  nl2.flatten_circuit (nl2.circuit_by_name ("NTRANS"));
+
+  EXPECT_EQ (nl2.to_string (),
+    "circuit INV2 (IN=IN,$2=$2,OUT=OUT,$4=$4,$5=$5);\n"
+    "  device PMOS $1 (S=$5,G=IN,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "  device PMOS $2 (S=$5,G=$2,D=OUT) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "  device NMOS $3 (S=$4,G=IN,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "  device NMOS $4 (S=$4,G=$2,D=OUT) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+  );
+}
+
+TEST(21_FlattenSubCircuit2)
+{
+  db::Netlist nl;
+
+  db::DeviceClass *dc;
+
+  dc = new db::DeviceClassMOS3Transistor ();
+  dc->set_name ("NMOS");
+  nl.add_device_class (dc);
+
+  dc = new db::DeviceClassMOS3Transistor ();
+  dc->set_name ("PMOS");
+  nl.add_device_class (dc);
+
+  nl.from_string (
+    "circuit RINGO (IN=IN,OSC=OSC,VSS=VSS,VDD=VDD);\n"
+    "  subcircuit INV2 INV2_SC1 (IN=$I8,$2=FB,OUT=OSC,$4=VSS,$5=VDD);\n"
+    "  subcircuit INV2 INV2_SC2 (IN=FB,$2=(null),OUT=$I8,$4=VSS,$5=VDD);\n"
+    "end;\n"
+    "circuit INV2 (IN=IN,$2=$2,OUT=OUT,$4=$4,$5=$5);\n"
+    "  subcircuit PTRANS SC1 ($1=$5,$2=$2,$3=IN);\n"
+    "  subcircuit NTRANS SC2 ($1=$4,$2=$2,$3=IN);\n"
+    "  subcircuit PTRANS SC3 ($1=$5,$2=OUT,$3=$2);\n"
+    "  subcircuit NTRANS SC4 ($1=$4,$2=OUT,$3=$2);\n"
+    "end;\n"
+    "circuit PTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device PMOS $1 (S=$1,D=$2,G=$3) (L=0.25,W=0.95);\n"
+    "end;\n"
+    "circuit NTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device NMOS $1 (S=$1,D=$2,G=$3) (L=0.25,W=0.95);\n"
+    "end;\n"
+  );
+
+  db::Netlist nl2;
+
+  nl2 = nl;
+  db::Circuit *inv2 = nl2.circuit_by_name ("RINGO");
+  inv2->flatten_subcircuit (inv2->subcircuit_by_name ("INV2_SC1"));
+
+  EXPECT_EQ (nl2.to_string (),
+    "circuit RINGO (IN=IN,OSC=OSC,VSS=VSS,VDD=VDD);\n"
+    "  subcircuit INV2 INV2_SC2 (IN=FB,$2=(null),OUT=$I8,$4=VSS,$5=VDD);\n"
+    "  subcircuit PTRANS INV2_SC1.SC1 ($1=VDD,$2=FB,$3=$I8);\n"
+    "  subcircuit NTRANS INV2_SC1.SC2 ($1=VSS,$2=FB,$3=$I8);\n"
+    "  subcircuit PTRANS INV2_SC1.SC3 ($1=VDD,$2=OSC,$3=FB);\n"
+    "  subcircuit NTRANS INV2_SC1.SC4 ($1=VSS,$2=OSC,$3=FB);\n"
+    "end;\n"
+    "circuit INV2 (IN=IN,$2=$2,OUT=OUT,$4=$4,$5=$5);\n"
+    "  subcircuit PTRANS SC1 ($1=$5,$2=$2,$3=IN);\n"
+    "  subcircuit NTRANS SC2 ($1=$4,$2=$2,$3=IN);\n"
+    "  subcircuit PTRANS SC3 ($1=$5,$2=OUT,$3=$2);\n"
+    "  subcircuit NTRANS SC4 ($1=$4,$2=OUT,$3=$2);\n"
+    "end;\n"
+    "circuit PTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device PMOS $1 (S=$1,G=$3,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+    "circuit NTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device NMOS $1 (S=$1,G=$3,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+  );
+
+  inv2->flatten_subcircuit (inv2->subcircuit_by_name ("INV2_SC2"));
+
+  EXPECT_EQ (nl2.to_string (),
+    "circuit RINGO (IN=IN,OSC=OSC,VSS=VSS,VDD=VDD);\n"
+    "  subcircuit PTRANS INV2_SC1.SC1 ($1=VDD,$2=FB,$3=$I8);\n"
+    "  subcircuit NTRANS INV2_SC1.SC2 ($1=VSS,$2=FB,$3=$I8);\n"
+    "  subcircuit PTRANS INV2_SC1.SC3 ($1=VDD,$2=OSC,$3=FB);\n"
+    "  subcircuit NTRANS INV2_SC1.SC4 ($1=VSS,$2=OSC,$3=FB);\n"
+    "  subcircuit PTRANS INV2_SC2.SC1 ($1=VDD,$2=(null),$3=FB);\n"
+    "  subcircuit NTRANS INV2_SC2.SC2 ($1=VSS,$2=(null),$3=FB);\n"
+    "  subcircuit PTRANS INV2_SC2.SC3 ($1=VDD,$2=$I8,$3=(null));\n"
+    "  subcircuit NTRANS INV2_SC2.SC4 ($1=VSS,$2=$I8,$3=(null));\n"
+    "end;\n"
+    "circuit INV2 (IN=IN,$2=$2,OUT=OUT,$4=$4,$5=$5);\n"
+    "  subcircuit PTRANS SC1 ($1=$5,$2=$2,$3=IN);\n"
+    "  subcircuit NTRANS SC2 ($1=$4,$2=$2,$3=IN);\n"
+    "  subcircuit PTRANS SC3 ($1=$5,$2=OUT,$3=$2);\n"
+    "  subcircuit NTRANS SC4 ($1=$4,$2=OUT,$3=$2);\n"
+    "end;\n"
+    "circuit PTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device PMOS $1 (S=$1,G=$3,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+    "circuit NTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device NMOS $1 (S=$1,G=$3,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+  );
+
+  nl2 = nl;
+  nl2.flatten_circuit (nl2.circuit_by_name ("INV2"));
+
+  EXPECT_EQ (nl2.to_string (),
+    "circuit RINGO (IN=IN,OSC=OSC,VSS=VSS,VDD=VDD);\n"
+    "  subcircuit PTRANS INV2_SC1.SC1 ($1=VDD,$2=FB,$3=$I8);\n"
+    "  subcircuit NTRANS INV2_SC1.SC2 ($1=VSS,$2=FB,$3=$I8);\n"
+    "  subcircuit PTRANS INV2_SC1.SC3 ($1=VDD,$2=OSC,$3=FB);\n"
+    "  subcircuit NTRANS INV2_SC1.SC4 ($1=VSS,$2=OSC,$3=FB);\n"
+    "  subcircuit PTRANS INV2_SC2.SC1 ($1=VDD,$2=(null),$3=FB);\n"
+    "  subcircuit NTRANS INV2_SC2.SC2 ($1=VSS,$2=(null),$3=FB);\n"
+    "  subcircuit PTRANS INV2_SC2.SC3 ($1=VDD,$2=$I8,$3=(null));\n"
+    "  subcircuit NTRANS INV2_SC2.SC4 ($1=VSS,$2=$I8,$3=(null));\n"
+    "end;\n"
+    "circuit PTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device PMOS $1 (S=$1,G=$3,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+    "circuit NTRANS ($1=$1,$2=$2,$3=$3);\n"
+    "  device NMOS $1 (S=$1,G=$3,D=$2) (L=0.25,W=0.95,AS=0,AD=0,PS=0,PD=0);\n"
+    "end;\n"
+  );
 }

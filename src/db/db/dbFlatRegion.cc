@@ -94,6 +94,13 @@ void FlatRegion::merged_semantics_changed ()
   m_merged_polygons_valid = false;
 }
 
+void FlatRegion::min_coherence_changed ()
+{
+  m_is_merged = false;
+  m_merged_polygons.clear ();
+  m_merged_polygons_valid = false;
+}
+
 void FlatRegion::reserve (size_t n)
 {
   m_polygons.reserve (db::Polygon::tag (), n);
@@ -107,6 +114,7 @@ FlatRegion::ensure_merged_polygons_valid () const
     m_merged_polygons.clear ();
 
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;
@@ -204,6 +212,38 @@ RegionDelegate *FlatRegion::filter_in_place (const PolygonFilterBase &filter)
   return this;
 }
 
+RegionDelegate *FlatRegion::process_in_place (const PolygonProcessorBase &filter)
+{
+  std::vector<db::Polygon> poly_res;
+
+  polygon_iterator_type pw = m_polygons.get_layer<db::Polygon, db::unstable_layer_tag> ().begin ();
+  for (RegionIterator p (filter.requires_raw_input () ? begin () : begin_merged ()); ! p.at_end (); ++p) {
+
+    poly_res.clear ();
+    filter.process (*p, poly_res);
+
+    for (std::vector<db::Polygon>::const_iterator pr = poly_res.begin (); pr != poly_res.end (); ++pr) {
+      if (pw == m_polygons.get_layer<db::Polygon, db::unstable_layer_tag> ().end ()) {
+        m_polygons.get_layer<db::Polygon, db::unstable_layer_tag> ().insert (*pr);
+        pw = m_polygons.get_layer<db::Polygon, db::unstable_layer_tag> ().end ();
+      } else {
+        m_polygons.get_layer<db::Polygon, db::unstable_layer_tag> ().replace (pw++, *pr);
+      }
+    }
+
+  }
+
+  m_polygons.get_layer<db::Polygon, db::unstable_layer_tag> ().erase (pw, m_polygons.get_layer<db::Polygon, db::unstable_layer_tag> ().end ());
+  m_merged_polygons.clear ();
+  m_is_merged = filter.result_is_merged () && merged_semantics ();
+
+  if (filter.result_must_not_be_merged ()) {
+    set_merged_semantics (false);
+  }
+
+  return this;
+}
+
 RegionDelegate *FlatRegion::merged_in_place ()
 {
   if (! m_is_merged) {
@@ -243,6 +283,7 @@ RegionDelegate *FlatRegion::merged_in_place (bool min_coherence, unsigned int mi
     invalidate_cache ();
 
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;

@@ -21,7 +21,10 @@
 */
 
 #include "gsiDecl.h"
+#include "gsiEnums.h"
 #include "dbLayoutToNetlist.h"
+#include "tlStream.h"
+#include "tlVariant.h"
 
 namespace gsi
 {
@@ -29,6 +32,26 @@ namespace gsi
 static db::LayoutToNetlist *make_l2n (const db::RecursiveShapeIterator &iter)
 {
   return new db::LayoutToNetlist (iter);
+}
+
+static db::LayoutToNetlist *make_l2n_default ()
+{
+  return new db::LayoutToNetlist ();
+}
+
+static db::LayoutToNetlist *make_l2n_from_existing_dss_with_layout (db::DeepShapeStore *dss, unsigned int layout_index)
+{
+  return new db::LayoutToNetlist (dss, layout_index);
+}
+
+static db::LayoutToNetlist *make_l2n_from_existing_dss (db::DeepShapeStore *dss)
+{
+  return new db::LayoutToNetlist (dss);
+}
+
+static db::LayoutToNetlist *make_l2n_flat (const std::string &topcell_name, double dbu)
+{
+  return new db::LayoutToNetlist (topcell_name, dbu);
 }
 
 static db::Layout *l2n_internal_layout (db::LayoutToNetlist *l2n)
@@ -43,23 +66,106 @@ static db::Cell *l2n_internal_top_cell (db::LayoutToNetlist *l2n)
   return const_cast<db::Cell *> (l2n->internal_top_cell ());
 }
 
-static void build_net (const db::LayoutToNetlist *l2n, const db::Net &net, db::Layout &target, db::Cell &target_cell, const std::map<unsigned int, const db::Region *> &lmap, const tl::Variant &cell_name_prefix)
+static void build_net (const db::LayoutToNetlist *l2n, const db::Net &net, db::Layout &target, db::Cell &target_cell, const std::map<unsigned int, const db::Region *> &lmap, const tl::Variant &netname_prop, db::LayoutToNetlist::BuildNetHierarchyMode hier_mode, const tl::Variant &circuit_cell_name_prefix, const tl::Variant &device_cell_name_prefix)
 {
-  std::string p = cell_name_prefix.to_string ();
-  l2n->build_net (net, target, target_cell, lmap, cell_name_prefix.is_nil () ? 0 : p.c_str ());
+  std::string p = circuit_cell_name_prefix.to_string ();
+  std::string dp = device_cell_name_prefix.to_string ();
+  l2n->build_net (net, target, target_cell, lmap, netname_prop, hier_mode, circuit_cell_name_prefix.is_nil () ? 0 : p.c_str (), device_cell_name_prefix.is_nil () ? 0 : dp.c_str ());
 }
 
-static void build_all_nets (const db::LayoutToNetlist *l2n, const db::CellMapping &cmap, db::Layout &target, const std::map<unsigned int, const db::Region *> &lmap, const tl::Variant &net_cell_name_prefix, const tl::Variant &circuit_cell_name_prefix)
+static void build_all_nets (const db::LayoutToNetlist *l2n, const db::CellMapping &cmap, db::Layout &target, const std::map<unsigned int, const db::Region *> &lmap, const tl::Variant &net_cell_name_prefix, const tl::Variant &netname_prop, db::LayoutToNetlist::BuildNetHierarchyMode hier_mode, const tl::Variant &circuit_cell_name_prefix, const tl::Variant &device_cell_name_prefix)
 {
   std::string cp = circuit_cell_name_prefix.to_string ();
   std::string np = net_cell_name_prefix.to_string ();
-  l2n->build_all_nets (cmap, target, lmap, net_cell_name_prefix.is_nil () ? 0 : np.c_str (), circuit_cell_name_prefix.is_nil () ? 0 : cp.c_str ());
+  std::string dp = device_cell_name_prefix.to_string ();
+  l2n->build_all_nets (cmap, target, lmap, net_cell_name_prefix.is_nil () ? 0 : np.c_str (), netname_prop, hier_mode, circuit_cell_name_prefix.is_nil () ? 0 : cp.c_str (), device_cell_name_prefix.is_nil () ? 0 : dp.c_str ());
+}
+
+static void build_nets (const db::LayoutToNetlist *l2n, const std::vector<const db::Net *> &nets, const db::CellMapping &cmap, db::Layout &target, const std::map<unsigned int, const db::Region *> &lmap, const tl::Variant &net_cell_name_prefix, const tl::Variant &netname_prop, db::LayoutToNetlist::BuildNetHierarchyMode hier_mode, const tl::Variant &circuit_cell_name_prefix, const tl::Variant &device_cell_name_prefix)
+{
+  std::string cp = circuit_cell_name_prefix.to_string ();
+  std::string np = net_cell_name_prefix.to_string ();
+  std::string dp = device_cell_name_prefix.to_string ();
+  l2n->build_nets (&nets, cmap, target, lmap, net_cell_name_prefix.is_nil () ? 0 : np.c_str (), netname_prop, hier_mode, circuit_cell_name_prefix.is_nil () ? 0 : cp.c_str (), device_cell_name_prefix.is_nil () ? 0 : dp.c_str ());
+}
+
+static std::vector<std::string> l2n_layer_names (const db::LayoutToNetlist *l2n)
+{
+  std::vector<std::string> ln;
+  for (db::LayoutToNetlist::layer_iterator l = l2n->begin_layers (); l != l2n->end_layers (); ++l) {
+    ln.push_back (l->second);
+  }
+  return ln;
+}
+
+static db::Region antenna_check (db::LayoutToNetlist *l2n, const db::Region &poly, const db::Region &metal, double ratio, const std::vector<tl::Variant> &diodes)
+{
+  std::vector<std::pair<const db::Region *, double> > diode_pairs;
+
+  for (std::vector<tl::Variant>::const_iterator d = diodes.begin (); d != diodes.end (); ++d) {
+
+    if (d->is_user<db::Region> ()) {
+
+      diode_pairs.push_back (std::make_pair (& d->to_user<db::Region> (), 0.0));
+
+    } else if (d->is_list ()) {
+
+      const std::vector<tl::Variant> &list = d->get_list ();
+      if (list.size () != 2) {
+        throw tl::Exception (tl::to_string (tr ("Diode layer specifications of 'antenna' method require list of diode layer/ratio pairs (e.g. '[ [ diode_layer, 10.0 ], ... ]')")));
+      }
+      if (! list [0].is_user<db::Region> ()) {
+        throw tl::Exception (tl::to_string (tr ("Diode layer specifications of 'antenna' method require list of diode layer/ratio pairs (e.g. '[ [ diode_layer, 10.0 ], ... ]') - first element isn't a Region object")));
+      }
+      if (! list [1].can_convert_to_double ()) {
+        throw tl::Exception (tl::to_string (tr ("Diode layer specifications of 'antenna' method require list of diode layer/ratio pairs (e.g. '[ [ diode_layer, 10.0 ], ... ]') - second element isn't a number")));
+      }
+
+      diode_pairs.push_back (std::make_pair (& list [0].to_user<db::Region> (), list [1].to_double ()));
+
+    }
+
+  }
+
+  return l2n->antenna_check (poly, metal, ratio, diode_pairs);
 }
 
 Class<db::LayoutToNetlist> decl_dbLayoutToNetlist ("db", "LayoutToNetlist",
   gsi::constructor ("new", &make_l2n, gsi::arg ("iter"),
-    "@brief The constructor\n"
-    "See the class description for details.\n"
+    "@brief Creates a new extractor connected to an original layout\n"
+    "This constructor will attach the extractor to an original layout through the "
+    "shape iterator.\n"
+  ) +
+  gsi::constructor ("new", &make_l2n_default,
+    "@brief Creates a new and empty extractor object\n"
+    "The main objective for this constructor is to create an object suitable for reading an annotated netlist.\n"
+  ) +
+  gsi::constructor ("new", &make_l2n_from_existing_dss, gsi::arg ("dss"),
+    "@brief Creates a new extractor object reusing an existing \\DeepShapeStore object\n"
+    "This constructor can be used if there is a DSS object already from which the "
+    "shapes can be taken. This version can only be used with \\register to "
+    "add layers (regions) inside the 'dss' object.\n"
+    "\n"
+    "The make_... methods will not create new layers as there is no particular place "
+    "defined where to create the layers."
+  ) +
+  gsi::constructor ("new", &make_l2n_from_existing_dss_with_layout, gsi::arg ("dss"), gsi::arg ("layout_index"),
+    "@brief Creates a new extractor object reusing an existing \\DeepShapeStore object\n"
+    "This constructor can be used if there is a DSS object already from which the "
+    "shapes can be taken. NOTE: in this case, the make_... functions will create "
+    "new layers inside this DSS. To register existing layers (regions) use \\register.\n"
+  ) +
+  gsi::constructor ("new", &make_l2n_flat, gsi::arg ("topcell_name"), gsi::arg ("dbu"),
+    "@brief Creates a new extractor object with a flat DSS\n"
+    "@param topcell_name The name of the top cell of the internal flat layout\n"
+    "@param dbu The database unit to use for the internal flat layout\n"
+    "\n"
+    "This constructor will create an extractor for flat extraction. Layers registered "
+    "with \\register will be flattened. New layers created with make_... will be flat "
+    "layers.\n"
+    "\n"
+    "The database unit is mandatory because the physical parameter extraction "
+    "for devices requires this unit for translation of layout to physical dimensions.\n"
   ) +
   gsi::method ("threads=", &db::LayoutToNetlist::set_threads, gsi::arg ("n"),
     "@brief Sets the number of threads to use for operations which support multiple threads\n"
@@ -84,21 +190,89 @@ Class<db::LayoutToNetlist> decl_dbLayoutToNetlist ("db", "LayoutToNetlist",
   gsi::method ("max_vertex_count", &db::LayoutToNetlist::max_vertex_count,
     "See \\max_vertex_count= for details about this attribute."
   ) +
-  gsi::method ("make_layer", &db::LayoutToNetlist::make_layer, gsi::arg ("layer_index"),
-    "@brief Creates a new region representing an original layer\n"
-    "'layer_index'' is the layer index of the desired layer in the original layout.\n"
-    "The Region object returned is a new object and must be deleted by the caller.\n"
+  gsi::method ("name", (const std::string &(db::LayoutToNetlist::*) () const) &db::LayoutToNetlist::name,
+    "@brief Gets the name of the database\n"
+  ) +
+  gsi::method ("name=", &db::LayoutToNetlist::set_name,
+    "@brief Sets the name of the database\n"
+  ) +
+  gsi::method ("description", (const std::string &(db::LayoutToNetlist::*) () const) &db::LayoutToNetlist::name,
+    "@brief Gets the description of the database\n"
+  ) +
+  gsi::method ("description=", &db::LayoutToNetlist::set_name,
+    "@brief Sets the description of the database\n"
+  ) +
+  gsi::method ("filename", &db::LayoutToNetlist::filename,
+    "@brief Gets the file name of the database\n"
+    "The filename is the name under which the database is stored or empty if it is not associated with a file."
+  ) +
+  gsi::method ("original_file", &db::LayoutToNetlist::original_file,
+    "@brief Gets the original file name of the database\n"
+    "The original filename is the layout file from which the netlist DB was created."
+  ) +
+  gsi::method ("original_file=", &db::LayoutToNetlist::set_original_file,
+    "@brief Sets the original file name of the database\n"
+  ) +
+  gsi::method ("layer_name", (std::string (db::LayoutToNetlist::*) (const db::Region &region) const) &db::LayoutToNetlist::name, gsi::arg ("l"),
+    "@brief Gets the name of the given layer\n"
+  ) +
+  gsi::method ("layer_name", (std::string (db::LayoutToNetlist::*) (unsigned int) const) &db::LayoutToNetlist::name, gsi::arg ("l"),
+    "@brief Gets the name of the given layer (by index)\n"
+  ) +
+  gsi::method ("register", (void (db::LayoutToNetlist::*) (const db::Region &region, const std::string &)) &db::LayoutToNetlist::register_layer, gsi::arg ("l"), gsi::arg ("n"),
+    "@brief Names the given layer\n"
+    "'l' must be a hierarchical region derived with \\make_layer, \\make_text_layer or \\make_polygon_layer or "
+    "a region derived from those by boolean operations or other hierarchical operations.\n"
+    "\n"
+    "Naming a layer allows the system to indicate the layer in various contexts, i.e. "
+    "when writing the data to a file. Named layers are also persisted inside the LayoutToNetlist object. "
+    "They are not discarded when the Region object is destroyed.\n"
+    "\n"
+    "If required, the system will assign a name automatically."
+  ) +
+  gsi::method_ext ("layer_names", &l2n_layer_names,
+    "@brief Returns a list of names of the layer kept inside the LayoutToNetlist object."
+  ) +
+  gsi::factory ("layer_by_name", &db::LayoutToNetlist::layer_by_name, gsi::arg ("name"),
+    "@brief Gets a layer object for the given name.\n"
+    "The returned object is a copy which represents the named layer."
+  ) +
+  gsi::factory ("layer_by_index", &db::LayoutToNetlist::layer_by_index, gsi::arg ("index"),
+    "@brief Gets a layer object for the given index.\n"
+    "Only named layers can be retrieved with this method. "
+    "The returned object is a copy which represents the named layer."
+  ) +
+  gsi::method ("is_persisted?", &db::LayoutToNetlist::is_persisted, gsi::arg ("layer"),
+    "@brief Returns true, if the given layer is a persisted region.\n"
+    "Persisted layers are kept inside the LayoutToNetlist object and are not released "
+    "if their object is destroyed. Named layers are persisted, unnamed layers are not. "
+    "Only persisted, named layers can be put into \\connect."
+  ) +
+  gsi::factory ("make_layer", (db::Region *(db::LayoutToNetlist::*) (const std::string &)) &db::LayoutToNetlist::make_layer, gsi::arg ("name", std::string ()),
+    "@brief Creates a new, empty hierarchical region\n"
+    "\n"
+    "The name is optional. If given, the layer will already be named accordingly (see \\register).\n"
+  ) +
+  gsi::factory ("make_layer", (db::Region *(db::LayoutToNetlist::*) (unsigned int, const std::string &)) &db::LayoutToNetlist::make_layer, gsi::arg ("layer_index"), gsi::arg ("name", std::string ()),
+    "@brief Creates a new hierarchical region reprfesenting an original layer\n"
+    "'layer_index' is the layer index of the desired layer in the original layout.\n"
     "This variant produces polygons and takes texts for net name annotation.\n"
     "A variant not taking texts is \\make_polygon_layer. A Variant only taking\n"
-    "texts is \\make_text_layer.\n"""
+    "texts is \\make_text_layer.\n"
+    "\n"
+    "The name is optional. If given, the layer will already be named accordingly (see \\register).\n"
   ) +
-  gsi::method ("make_text_layer", &db::LayoutToNetlist::make_text_layer, gsi::arg ("layer_index"),
+  gsi::factory ("make_text_layer", &db::LayoutToNetlist::make_text_layer, gsi::arg ("layer_index"), gsi::arg ("name", std::string ()),
     "@brief Creates a new region representing an original layer taking texts only\n"
     "See \\make_layer for details.\n"
+    "\n"
+    "The name is optional. If given, the layer will already be named accordingly (see \\register).\n"
   ) +
-  gsi::method ("make_polygon_layer", &db::LayoutToNetlist::make_polygon_layer, gsi::arg ("layer_index"),
+  gsi::factory ("make_polygon_layer", &db::LayoutToNetlist::make_polygon_layer, gsi::arg ("layer_index"), gsi::arg ("name", std::string ()),
     "@brief Creates a new region representing an original layer taking polygons and texts\n"
     "See \\make_layer for details.\n"
+    "\n"
+    "The name is optional. If given, the layer will already be named accordingly (see \\register).\n"
   ) +
   gsi::method ("extract_devices", &db::LayoutToNetlist::extract_devices, gsi::arg ("extractor"), gsi::arg ("layers"),
     "@brief Extracts devices\n"
@@ -131,8 +305,23 @@ Class<db::LayoutToNetlist> decl_dbLayoutToNetlist ("db", "LayoutToNetlist",
   gsi::method ("global_net_name", &db::LayoutToNetlist::global_net_name, gsi::arg ("global_net_id"),
     "@brief Gets the global net name for the given global net ID."
   ) +
-  gsi::method ("extract_netlist", &db::LayoutToNetlist::extract_netlist,
+  gsi::method ("extract_netlist", &db::LayoutToNetlist::extract_netlist, gsi::arg ("join_net_names", std::string ()),
     "@brief Runs the netlist extraction\n"
+    "'join_net_names' is a glob expression for labels. Nets on top level carrying the same label which matches this glob "
+    "expression will be connected implicitly even if there is no physical connection. This feature is useful to simulate a connection "
+    "which will be made later when integrating the component.\n"
+    "\n"
+    "Valid glob expressions are:\n"
+    "@ul\n"
+    "@li \"\" no implicit connections.@/li\n"
+    "@li \"*\" to make all labels candidates for implicit connections.@/li\n"
+    "@li \"VDD\" to make all 'VDD'' nets candidates for implicit connections.@/li\n"
+    "@li \"VDD\" to make all 'VDD'+suffix nets candidates for implicit connections.@/li\n"
+    "@li \"{VDD,VSS}\" to all VDD and VSS nets candidates for implicit connections.@/li\n"
+    "@/ul\n"
+    "\n"
+    "Label matching is case sensitive.\n"
+    "\n"
     "See the class description for more details.\n"
   ) +
   gsi::method_ext ("internal_layout", &l2n_internal_layout,
@@ -150,9 +339,21 @@ Class<db::LayoutToNetlist> decl_dbLayoutToNetlist ("db", "LayoutToNetlist",
     "This method is required to derive the internal layer index - for example for\n"
     "investigating the cluster tree.\n"
   ) +
-  gsi::method ("cell_mapping_into", &db::LayoutToNetlist::cell_mapping_into, gsi::arg ("layout"), gsi::arg ("cell"),
+  gsi::method ("cell_mapping_into", (db::CellMapping (db::LayoutToNetlist::*) (db::Layout &, db::Cell &, bool)) &db::LayoutToNetlist::cell_mapping_into, gsi::arg ("layout"), gsi::arg ("cell"), gsi::arg ("with_device_cells", false),
     "@brief Creates a cell mapping for copying shapes from the internal layout to the given target layout.\n"
-    "CAUTION: may create new cells in 'layout'.\n"
+    "If 'with_device_cells' is true, cells will be produced for devices. These are cells not corresponding to circuits, so they are disabled normally.\n"
+    "Use this option, if you want to access device terminal shapes per device.\n"
+    "\n"
+    "CAUTION: this function may create new cells in 'layout'. Use \\const_cell_mapping_into if you want to use the target layout's hierarchy and not modify it.\n"
+  ) +
+  gsi::method ("cell_mapping_into", (db::CellMapping (db::LayoutToNetlist::*) (db::Layout &, db::Cell &, const std::vector<const db::Net *> &, bool)) &db::LayoutToNetlist::cell_mapping_into, gsi::arg ("layout"), gsi::arg ("cell"), gsi::arg ("nets"), gsi::arg ("with_device_cells", false),
+    "@brief Creates a cell mapping for copying shapes from the internal layout to the given target layout.\n"
+    "This version will only create cells which are required to represent the nets from the 'nets' argument.\n"
+    "\n"
+    "If 'with_device_cells' is true, cells will be produced for devices. These are cells not corresponding to circuits, so they are disabled normally.\n"
+    "Use this option, if you want to access device terminal shapes per device.\n"
+    "\n"
+    "CAUTION: this function may create new cells in 'layout'. Use \\const_cell_mapping_into if you want to use the target layout's hierarchy and not modify it.\n"
   ) +
   gsi::method ("const_cell_mapping_into", &db::LayoutToNetlist::const_cell_mapping_into, gsi::arg ("layout"), gsi::arg ("cell"),
     "@brief Creates a cell mapping for copying shapes from the internal layout to the given target layout.\n"
@@ -167,58 +368,86 @@ Class<db::LayoutToNetlist> decl_dbLayoutToNetlist ("db", "LayoutToNetlist",
     "If 'recursive'' is true, the returned region will contain the shapes of\n"
     "all subcircuits too.\n"
   ) +
-  gsi::method ("shapes_of_net", (void (db::LayoutToNetlist::*) (const db::Net &, const db::Region &, bool, db::Shapes &) const) &db::LayoutToNetlist::shapes_of_net, gsi::arg ("net"), gsi::arg ("of_layer"), gsi::arg ("recursive"), gsi::arg ("to"),
+  gsi::method ("shapes_of_net", (void (db::LayoutToNetlist::*) (const db::Net &, const db::Region &, bool, db::Shapes &, db::properties_id_type) const) &db::LayoutToNetlist::shapes_of_net, gsi::arg ("net"), gsi::arg ("of_layer"), gsi::arg ("recursive"), gsi::arg ("to"), gsi::arg ("propid", db::properties_id_type (0), "0"),
     "@brief Sends all shapes of a specific net and layer to the given Shapes container.\n"
     "If 'recursive'' is true, the returned region will contain the shapes of\n"
     "all subcircuits too.\n"
+    "\"prop_id\" is an optional properties ID. If given, this property set will be attached to the shapes."
   ) +
-  gsi::method_ext ("build_net", &build_net, gsi::arg ("net"), gsi::arg ("target"), gsi::arg ("target_cell"), gsi::arg ("lmap"), gsi::arg ("cell_name"),
+  gsi::method_ext ("build_net", &build_net, gsi::arg ("net"), gsi::arg ("target"), gsi::arg ("target_cell"), gsi::arg ("lmap"), gsi::arg ("netname_prop", tl::Variant (), "nil"), gsi::arg ("hier_mode", db::LayoutToNetlist::BNH_Flatten, "BNH_Flatten"), gsi::arg ("circuit_cell_name_prefix", tl::Variant (), "nil"), gsi::arg ("device_cell_name_prefix", tl::Variant (), "nil"),
     "@brief Builds a net representation in the given layout and cell\n"
     "\n"
-    "This method has two modes: recursive and top-level mode. In recursive mode,\n"
-    "it will create a proper hierarchy below the given target cell to hold all subcircuits the\n"
-    "net connects to. It will copy the net's parts from this subcircuits into these cells.\n"
+    "This method puts the shapes of a net into the given target cell using a variety of options\n"
+    "to represent the net name and the hierarchy of the net.\n"
     "\n"
-    "In top-level mode, only the shapes from the net inside it's circuit are copied to\n"
-    "the given target cell. No other cells are created.\n"
+    "If the netname_prop name is not nil, a property with the given name is created and assigned\n"
+    "the net name.\n"
     "\n"
-    "Recursive mode is picked when a cell name prefix is given. The new cells will be\n"
-    "named like cell_name_prefix + circuit name.\n"
+    "Net hierarchy is covered in three ways:\n"
+    "@ul\n"
+    " @li No connection indicated (hier_mode == \\BNH_Disconnected: the net shapes are simply put into their\n"
+    "     respective circuits. The connections are not indicated. @/li\n"
+    " @li Subnet hierarchy (hier_mode == \\BNH_SubcircuitCells): for each root net, a full hierarchy is built\n"
+    "     to accommodate the subnets (see build_net in recursive mode). @/li\n"
+    " @li Flat (hier_mode == \\BNH_Flatten): each net is flattened and put into the circuit it\n"
+    "     belongs to. @/li\n"
+    "@/ul\n"
+    "If a device cell name prefix is given, cells will be produced for each device abstract\n"
+    "using a name like device_cell_name_prefix + device name. Otherwise the device shapes are\n"
+    "treated as part of the net.\n"
     "\n"
     "@param target The target layout\n"
     "@param target_cell The target cell\n"
     "@param lmap Target layer indexes (keys) and net regions (values)\n"
-    "@param cell_name_prefix Chooses recursive mode if non-nil\n"
+    "@param hier_mode See description of this method\n"
+    "@param netname_prop An (optional) property name to which to attach the net name\n"
+    "@param cell_name_prefix Chooses recursive mode if non-null\n"
+    "@param device_cell_name_prefix See above\n"
   ) +
-  gsi::method_ext ("build_all_nets", &build_all_nets, gsi::arg ("cmap"), gsi::arg ("target"), gsi::arg ("lmap"), gsi::arg ("net_cell_name_prefix"), gsi::arg ("circuit_cell_name_prefix"),
+  gsi::method_ext ("build_all_nets", &build_all_nets, gsi::arg ("cmap"), gsi::arg ("target"), gsi::arg ("lmap"), gsi::arg ("net_cell_name_prefix", tl::Variant (), "nil"), gsi::arg ("netname_prop", tl::Variant (), "nil"), gsi::arg ("hier_mode", db::LayoutToNetlist::BNH_Flatten, "BNH_Flatten"), gsi::arg ("circuit_cell_name_prefix", tl::Variant (), "nil"), gsi::arg ("device_cell_name_prefix", tl::Variant (), "nil"),
     "@brief Builds a full hierarchical representation of the nets\n"
     "\n"
-    "This method copies all nets into cells corresponding to the circuits. It uses the cmap\n"
-    "object to determine the target cell (create them with \\cell_mapping_into or \\const_cell_mapping_into.\n"
-    "If no mapping is requested, the specific circuit it skipped.\n"
+    "This method copies all nets into cells corresponding to the circuits. It uses the 'cmap'\n"
+    "object to determine the target cell (create it with \"cell_mapping_into\" or \"const_cell_mapping_into\").\n"
+    "If no mapping is provided for a specific circuit cell, the nets are copied into the next mapped parent as "
+    "many times as the circuit cell appears there (circuit flattening).\n"
     "\n"
-    "The method has two net annotation modes:\n"
-    "\n"
+    "The method has three net annotation modes:\n"
     "@ul\n"
-    "@li 'No annotation'' (net_cell_name_prefix == 0): the shapes will be put into the target cell simply @/li\n"
-    "@li Individual subcells per net (net_cell_name_prefix != 0): for each net, a subcell is created\n"
-    "    and the net shapes will be put there (name of the subcell = net_cell_name_prefix + net name). @/li\n"
+    " @li No annotation (net_cell_name_prefix == nil and netname_prop == nil): the shapes will be put\n"
+    "     into the target cell simply. @/li\n"
+    " @li Net name property (net_cell_name_prefix == nil and netname_prop != nil): the shapes will be\n"
+    "     annotated with a property named with netname_prop and containing the net name string. @/li\n"
+    " @li Individual subcells per net (net_cell_name_prefix != 0): for each net, a subcell is created\n"
+    "     and the net shapes will be put there (name of the subcell = net_cell_name_prefix + net name).\n"
+    "     (this mode can be combined with netname_prop too). @/li\n"
     "@/ul\n"
     "\n"
-    "In addition, net hierarchy is covered in two ways:\n"
-    "\n"
+    "In addition, net hierarchy is covered in three ways:\n"
     "@ul\n"
-    "@li No connection indicated (circuit_cell_name_prefix == 0: the net shapes are simply put into their\n"
-    "   respective circuits. The connections are not indicated. @/li\n"
-    "@li Subnet hierarchy (circuit_cell_name_prefix != 0): for each root net, a full hierarchy is built\n"
-    "   to accomodate the subnets (see build_net in recursive mode). @/li\n"
+    " @li No connection indicated (hier_mode == \\BNH_Disconnected: the net shapes are simply put into their\n"
+    "     respective circuits. The connections are not indicated. @/li\n"
+    " @li Subnet hierarchy (hier_mode == \\BNH_SubcircuitCells): for each root net, a full hierarchy is built\n"
+    "     to accommodate the subnets (see build_net in recursive mode). @/li\n"
+    " @li Flat (hier_mode == \\BNH_Flatten): each net is flattened and put into the circuit it\n"
+    "     belongs to. @/li\n"
     "@/ul\n"
+    "\n"
+    "If a device cell name prefix is given, cells will be produced for each device abstract\n"
+    "using a name like device_cell_name_prefix + device name. Otherwise the device shapes are\n"
+    "treated as part of the net.\n"
     "\n"
     "@param cmap The mapping of internal layout to target layout for the circuit mapping\n"
     "@param target The target layout\n"
     "@param lmap Target layer indexes (keys) and net regions (values)\n"
+    "@param hier_mode See description of this method\n"
+    "@param netname_prop An (optional) property name to which to attach the net name\n"
     "@param circuit_cell_name_prefix See method description\n"
     "@param net_cell_name_prefix See method description\n"
+    "@param device_cell_name_prefix See above\n"
+  ) +
+  gsi::method_ext ("build_nets", &build_nets, gsi::arg ("nets"), gsi::arg ("cmap"), gsi::arg ("target"), gsi::arg ("lmap"), gsi::arg ("net_cell_name_prefix", tl::Variant (), "nil"), gsi::arg ("netname_prop", tl::Variant (), "nil"), gsi::arg ("hier_mode", db::LayoutToNetlist::BNH_Flatten, "BNH_Flatten"), gsi::arg ("circuit_cell_name_prefix", tl::Variant (), "nil"), gsi::arg ("device_cell_name_prefix", tl::Variant (), "nil"),
+    "@brief Like \\build_all_nets, but with the ability to select some nets."
   ) +
   gsi::method ("probe_net", (db::Net *(db::LayoutToNetlist::*) (const db::Region &, const db::DPoint &)) &db::LayoutToNetlist::probe_net, gsi::arg ("of_layer"), gsi::arg ("point"),
     "@brief Finds the net by probing a specific location on the given layer\n"
@@ -242,6 +471,55 @@ Class<db::LayoutToNetlist> decl_dbLayoutToNetlist ("db", "LayoutToNetlist",
     "See the description of the other \\probe_net variant.\n"
     "This variant accepts a database-unit location. The location is given in the\n"
     "coordinate space of the initial cell.\n"
+  ) +
+  gsi::method ("write", &db::LayoutToNetlist::save, gsi::arg ("path"), gsi::arg ("short_format", false),
+    "@brief Writes the extracted netlist to a file.\n"
+    "This method employs the native format of KLayout.\n"
+  ) +
+  gsi::method ("read", &db::LayoutToNetlist::load, gsi::arg ("path"),
+    "@brief Reads the extracted netlist from the file.\n"
+    "This method employs the native format of KLayout.\n"
+  ) +
+  gsi::method_ext ("antenna_check", &antenna_check, gsi::arg ("gate"), gsi::arg ("metal"), gsi::arg ("ratio"), gsi::arg ("diodes", std::vector<tl::Variant> (), "[]"),
+   "@brief Runs an antenna check on the extracted clusters\n"
+   "\n"
+   "The antenna check will traverse all clusters and run an antenna check\n"
+   "for all root clusters. The antenna ratio is defined by the total\n"
+   "area of all \"metal\" shapes divided by the total area of all \"gate\" shapes\n"
+   "on the cluster. Of all clusters where the antenna ratio is larger than\n"
+   "the limit ratio all metal shapes are copied to the output region as\n"
+   "error markers.\n"
+   "\n"
+   "The simple call is:\n"
+   "\n"
+   "@code\n"
+   "l2n = ... # a LayoutToNetlist object\n"
+   "l2n.extract_netlist\n"
+   "# check for antenna ratio 10.0 of metal vs. poly:\n"
+   "errors = l2n.antenna(poly, metal, 10.0)\n"
+   "@/code\n"
+   "\n"
+   "You can include diodes which rectify the antenna effect. "
+   "Provide recognition layers for theses diodes and include them "
+   "in the connections. Then specify the diode layers in the antenna call:\n"
+   "\n"
+   "@code\n"
+   "...\n"
+   "# include diode_layer1:\n"
+   "errors = l2n.antenna(poly, metal, 10.0, [ diode_layer1 ])\n"
+   "# include diode_layer1 and diode_layer2:"
+   "errors = l2n.antenna(poly, metal, 10.0, [ diode_layer1, diode_layer2 ])\n"
+   "@/code\n"
+   "\n"
+   "Diodes can be configured to partially reduce the antenna effect depending "
+   "on their area. This will make the diode_layer1 increase the ratio by 50.0 "
+   "per square micrometer area of the diode:\n"
+   "\n"
+   "@code\n"
+   "...\n"
+   "# diode_layer1 increases the ratio by 50 per sqaure micrometer area:\n"
+   "errors = l2n.antenna(poly, metal, 10.0 [ [ diode_layer, 50.0 ] ])\n"
+   "@/code\n"
   ),
   "@brief A generic framework for extracting netlists from layouts\n"
   "\n"
@@ -278,9 +556,35 @@ Class<db::LayoutToNetlist> decl_dbLayoutToNetlist ("db", "LayoutToNetlist",
   "    The produced netlist is available with \\netlist. The Shapes of a\n"
   "    specific net are available with \\shapes_of_net. \\probe_net allows\n"
   "    finding a net by probing a specific location.\n"
-  "@li\n"
+  "@/li\n"
+  "@/ul\n"
+  "\n"
+  "You can also use the extractor with an existing \\DeepShapeStore object "
+  "or even flat data. In this case, preparation means importing existing regions "
+  "with the \\register method.\n"
+  "If you want to use the \\LayoutToNetlist object with flat data, use the "
+  "'LayoutToNetlist(topcell, dbu)' constructor. If you want to use it with "
+  "hierarchical data and an existing DeepShapeStore object, use the "
+  "'LayoutToNetlist(dss)' constructor.\n"
   "\n"
   "This class has been introduced in version 0.26."
 );
+
+gsi::EnumIn<db::LayoutToNetlist, db::LayoutToNetlist::BuildNetHierarchyMode> decl_dbLayoutToNetlist_BuildNetHierarchyMode ("db", "BuildNetHierarchyMode",
+  gsi::enum_const ("BNH_Flatten", db::LayoutToNetlist::BNH_Flatten,
+    "@brief This constant tells \\build_net and \\build_all_nets to flatten the nets (used for the \"hier_mode\" parameter)."
+  ) +
+  gsi::enum_const ("BNH_Disconnected", db::LayoutToNetlist::BNH_Disconnected,
+    "@brief This constant tells \\build_net and \\build_all_nets to produce local nets without connections to subcircuits (used for the \"hier_mode\" parameter)."
+  ) +
+  gsi::enum_const ("BNH_SubcircuitCells", db::LayoutToNetlist::BNH_SubcircuitCells,
+    "@brief This constant tells \\build_net and \\build_all_nets to produce a hierarchy of subcircuit cells per net (used for the \"hier_mode\" parameter)."
+  ),
+  "@brief This class represents the LayoutToNetlist::BuildNetHierarchyMode enum\n"
+  "This enum is used for \\LayoutToNetlist#build_all_nets and \\LayoutToNetlist#build_net."
+);
+
+//  Inject the NetlistCrossReference::Status declarations into NetlistCrossReference:
+gsi::ClassExt<db::LayoutToNetlist> inject_dbLayoutToNetlist_BuildNetHierarchyMode_in_parent (decl_dbLayoutToNetlist_BuildNetHierarchyMode.defs ());
 
 }

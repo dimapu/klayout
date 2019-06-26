@@ -63,6 +63,8 @@ class LibraryProxy;
 class CellMapping;
 class LayerMapping;
 class Region;
+class Edges;
+class EdgePairs;
 
 template <class Coord> class generic_repository;
 typedef generic_repository<db::Coord> GenericRepository;
@@ -510,7 +512,7 @@ public:
   Layout (db::Manager *manager = 0);
 
   /**
-   *  @brief Standard constructor which allows to specify the editable mode
+   *  @brief Standard constructor which allows one to specify editable mode
    */
   Layout (bool editable, db::Manager *manager = 0);
 
@@ -1103,6 +1105,24 @@ public:
   void insert (db::cell_index_type cell, int layer, const db::Region &region);
 
   /**
+   *  @brief Inserts a edge collection (potentially hierarchical) into the given cell and layer
+   *
+   *  If the edge collection is flat (conceptionally), it will be put into the cell.
+   *  If the edge collection is hierarchical, a cell hierarchy will be built below the
+   *  given cell.
+   */
+  void insert (db::cell_index_type cell, int layer, const db::Edges &edges);
+
+  /**
+   *  @brief Inserts a edge pair collection (potentially hierarchical) into the given cell and layer
+   *
+   *  If the edge pair collection is flat (conceptionally), it will be put into the cell.
+   *  If the edge pair collection is hierarchical, a cell hierarchy will be built below the
+   *  given cell.
+   */
+  void insert (db::cell_index_type cell, int layer, const db::EdgePairs &edge_pairs);
+
+  /**
    *  @brief Delete a cell plus all subcells 
    *
    *  All subcells referenced directy or indirectly are deleted as well.
@@ -1413,7 +1433,7 @@ public:
    *  @brief Forces an update even if the layout is under construction
    *
    *  This method behaves like "update" but forces and update even if the 
-   *  "under_construction" state is active. This allows to do the update
+   *  "under_construction" state is active. This allows one to do the update
    *  in certain stages without triggering the update automatically and
    *  too frequently.
    */
@@ -1539,6 +1559,17 @@ public:
       if (! m_invalid) {
         update ();
       }
+    }
+  }
+
+  /**
+   *  @brief Cancel the "in changes" state (see "start_changes")
+   *  This version does not force an update
+   */
+  void end_changes_no_update ()
+  {
+    if (m_invalid > 0) {
+      --m_invalid;
     }
   }
 
@@ -1743,8 +1774,8 @@ mem_stat (MemStatistics *stat, MemStatistics::purpose_t purpose, int cat, const 
 class DB_PUBLIC LayoutLocker
 {
 public:
-  explicit LayoutLocker (db::Layout *layout = 0)
-    : mp_layout (layout)
+  explicit LayoutLocker (db::Layout *layout = 0, bool no_update = false)
+    : mp_layout (layout), m_no_update (no_update)
   {
     if (mp_layout) {
       mp_layout->start_changes ();
@@ -1753,16 +1784,47 @@ public:
 
   ~LayoutLocker ()
   {
+    set (0, false);
+  }
+
+  LayoutLocker (const LayoutLocker &other)
+    : mp_layout (other.mp_layout), m_no_update (other.m_no_update)
+  {
     if (mp_layout) {
-      mp_layout->end_changes ();
+      mp_layout->start_changes ();
     }
   }
 
-private:
-  LayoutLocker (const LayoutLocker &);
-  LayoutLocker &operator= (const LayoutLocker &);
+  LayoutLocker &operator= (const LayoutLocker &other)
+  {
+    if (this == &other) {
+      return *this;
+    }
 
+    set (other.mp_layout, other.m_no_update);
+    return *this;
+  }
+
+private:
   db::Layout *mp_layout;
+  bool m_no_update;
+
+  void set (db::Layout *layout, bool no_update)
+  {
+    if (mp_layout) {
+      if (m_no_update) {
+        mp_layout->end_changes_no_update ();
+      } else {
+        mp_layout->end_changes ();
+      }
+    }
+    mp_layout = layout;
+    m_no_update = no_update;
+    if (mp_layout) {
+      mp_layout->start_changes ();
+    }
+  }
+
 };
 
 }

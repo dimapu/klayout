@@ -9,18 +9,18 @@ SUBDIRS = \
   db \
   rdb \
   lib \
-  buddies \
   plugins \
   unit_tests \
 
 !equals(HAVE_QT, "0") {
 
-  # TODO: make unit_tests capable of running without Qt
+  # TODO: make buddies able to build without Qt
   SUBDIRS += \
     klayout_main \
     laybasic \
     lay \
     ant \
+    buddies \
     lym \
     img \
     edt \
@@ -58,10 +58,11 @@ db.depends += gsi
 rdb.depends += db
 lib.depends += db
 
-buddies.depends += plugins $$LANG_DEPENDS
 plugins.depends += lib rdb db
 
 !equals(HAVE_QT, "0") {
+
+  buddies.depends += plugins lym $$LANG_DEPENDS
 
   equals(HAVE_PYTHON, "1") {
     pymod.depends += lay
@@ -98,3 +99,9 @@ plugins.depends += lib rdb db
 }
 
 unit_tests.depends += plugins $$MAIN_DEPENDS
+
+RESOURCES += \
+    laybasic/laybasic/layResources.qrc \
+    laybasic/laybasic/layResources.qrc \
+    plugins/streamers/lay/lay/layResources.qrc \
+    plugins/streamers/lay/lay/layResources.qrc

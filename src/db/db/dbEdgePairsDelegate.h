@@ -27,6 +27,7 @@
 #include "dbCommon.h"
 
 #include "dbEdgePair.h"
+#include "tlUniqueId.h"
 
 namespace db {
 
@@ -35,6 +36,7 @@ class EdgePairs;
 class EdgePairFilterBase;
 class RegionDelegate;
 class EdgesDelegate;
+class Layout;
 
 /**
  *  @brief The edge pair set iterator delegate
@@ -57,6 +59,7 @@ public:
  *  @brief The delegate for the actual edge set implementation
  */
 class DB_PUBLIC EdgePairsDelegate
+  : public tl::UniqueId
 {
 public:
   typedef db::Coord coord_type;
@@ -76,6 +79,12 @@ public:
 
   void enable_progress (const std::string &progress_desc);
   void disable_progress ();
+
+  //  dummy features to harmonize the interface of region, edges and edge pair delegates
+  void set_merged_semantics (bool) { }
+  bool merged_semantics () const { return false; }
+  void set_is_merged (bool) { }
+  bool is_merged () const { return false; }
 
   virtual std::string to_string (size_t nmax) const = 0;
 
@@ -107,6 +116,9 @@ public:
 
   virtual bool equals (const EdgePairs &other) const = 0;
   virtual bool less (const EdgePairs &other) const = 0;
+
+  virtual void insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const = 0;
+  virtual void insert_into_as_polygons (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer, db::Coord enl) const = 0;
 
 protected:
   const std::string &progress_desc () const

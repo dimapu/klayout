@@ -59,6 +59,41 @@ TEST(1)
   db::compare_layouts (_this, target, tl::testsrc () + "/testdata/algo/hierarchy_builder_au1.gds");
 }
 
+TEST(1_WithEmptyLayer)
+{
+  db::Layout ly;
+  {
+    std::string fn (tl::testsrc ());
+    fn += "/testdata/algo/hierarchy_builder_l1.gds";
+    tl::InputStream stream (fn);
+    db::Reader reader (stream);
+    reader.read (ly);
+  }
+
+  db::cell_index_type top_cell_index = *ly.begin_top_down ();
+
+  db::Layout target;
+  db::HierarchyBuilder builder (&target);
+
+  db::RecursiveShapeIterator iter (ly, ly.cell (top_cell_index), std::set<unsigned int> ());
+  iter.push (&builder);
+
+  for (db::Layout::layer_iterator li = ly.begin_layers (); li != ly.end_layers (); ++li) {
+
+    unsigned int li1 = (*li).first;
+    unsigned int target_layer = target.insert_layer (*(*li).second);
+    builder.set_target_layer (target_layer);
+
+    db::RecursiveShapeIterator iter (ly, ly.cell (top_cell_index), li1);
+
+    iter.push (&builder);
+
+  }
+
+  CHECKPOINT();
+  db::compare_layouts (_this, target, tl::testsrc () + "/testdata/algo/hierarchy_builder_au1.gds");
+}
+
 TEST(2_WithoutClip)
 {
   db::Layout ly;
@@ -109,7 +144,7 @@ TEST(2_WithClip)
 
   db::Layout target;
   db::ClippingHierarchyBuilderShapeReceiver clip;
-  db::HierarchyBuilder builder (&target, &clip);
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (), &clip);
 
   db::cell_index_type target_top = target.add_cell ("CLIP_TOP");
 
@@ -148,7 +183,7 @@ TEST(2_WithClipAndSimplification)
   db::Layout target;
   db::ReducingHierarchyBuilderShapeReceiver red(0, 1.2, 4);
   db::ClippingHierarchyBuilderShapeReceiver clip(&red);
-  db::HierarchyBuilder builder (&target, &clip);
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (), &clip);
 
   db::cell_index_type target_top = target.add_cell ("CLIP_TOP");
 
@@ -187,7 +222,7 @@ TEST(2_WithClipAndRefGeneration)
   db::Layout target;
   db::PolygonReferenceHierarchyBuilderShapeReceiver ref(&target);
   db::ClippingHierarchyBuilderShapeReceiver clip(&ref);
-  db::HierarchyBuilder builder (&target, &clip);
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (), &clip);
 
   db::cell_index_type target_top = target.add_cell ("CLIP_TOP");
 
@@ -226,7 +261,7 @@ TEST(2_WithEmptyResult)
   db::Layout target;
   db::PolygonReferenceHierarchyBuilderShapeReceiver ref(&target);
   db::ClippingHierarchyBuilderShapeReceiver clip(&ref);
-  db::HierarchyBuilder builder (&target, &clip);
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (), &clip);
 
   db::cell_index_type target_top = target.add_cell ("CLIP_TOP");
 
@@ -251,6 +286,56 @@ TEST(2_WithEmptyResult)
   db::compare_layouts (_this, target, tl::testsrc () + "/testdata/algo/hierarchy_builder_au2e.gds");
 }
 
+TEST(2_WithClipAndSimplificationAndEmptyLayer)
+{
+  db::Layout ly;
+  {
+    std::string fn (tl::testsrc ());
+    fn += "/testdata/algo/hierarchy_builder_l1.gds";
+    tl::InputStream stream (fn);
+    db::Reader reader (stream);
+    reader.read (ly);
+  }
+
+  db::Layout target;
+  db::ReducingHierarchyBuilderShapeReceiver red(0, 1.2, 4);
+  db::ClippingHierarchyBuilderShapeReceiver clip(&red);
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (), &clip);
+
+  db::cell_index_type target_top = target.add_cell ("CLIP_TOP");
+
+  db::Box clip_box (5000, -2000, 18500, 6000);
+
+  builder.set_target_layer (target.insert_layer (db::LayerProperties (100, 0)));
+
+  db::cell_index_type top_cell_index = *ly.begin_top_down ();
+  db::RecursiveShapeIterator iter (ly, ly.cell (top_cell_index), std::set<unsigned int> (), clip_box);
+
+  iter.push (&builder);
+
+  target.cell (target_top).insert (db::CellInstArray (db::CellInst (builder.initial_cell ()->cell_index ()), db::Trans ()));
+
+  for (db::Layout::layer_iterator li = ly.begin_layers (); li != ly.end_layers (); ++li) {
+
+    builder.reset ();
+
+    unsigned int li1 = (*li).first;
+    unsigned int target_layer = target.insert_layer (*(*li).second);
+    builder.set_target_layer (target_layer);
+
+    db::cell_index_type top_cell_index = *ly.begin_top_down ();
+    db::RecursiveShapeIterator iter (ly, ly.cell (top_cell_index), li1, clip_box);
+
+    iter.push (&builder);
+
+    target.cell (target_top).insert (db::CellInstArray (db::CellInst (builder.initial_cell ()->cell_index ()), db::Trans ()));
+
+  }
+
+  CHECKPOINT();
+  db::compare_layouts (_this, target, tl::testsrc () + "/testdata/algo/hierarchy_builder_au2f.gds");
+}
+
 TEST(3_ComplexRegionWithClip)
 {
   db::Layout ly;
@@ -264,7 +349,7 @@ TEST(3_ComplexRegionWithClip)
 
   db::Layout target;
   db::ClippingHierarchyBuilderShapeReceiver clip;
-  db::HierarchyBuilder builder (&target, &clip);
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (), &clip);
 
   db::cell_index_type target_top = target.add_cell ("CLIP_TOP");
 
@@ -306,7 +391,7 @@ TEST(4_ComplexRegionAndLayoutWithClip)
 
   db::Layout target;
   db::ClippingHierarchyBuilderShapeReceiver clip;
-  db::HierarchyBuilder builder (&target, &clip);
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (), &clip);
 
   db::cell_index_type target_top = target.add_cell ("CLIP_TOP");
 
@@ -533,5 +618,78 @@ TEST(7_DetachFromOriginalLayout)
 
   CHECKPOINT();
   db::compare_layouts (_this, target, tl::testsrc () + "/testdata/algo/hierarchy_builder_au_l5.gds");
+}
+
+TEST(8a_SimpleWithTrans)
+{
+  db::Layout ly;
+  {
+    std::string fn (tl::testsrc ());
+    fn += "/testdata/algo/hierarchy_builder_l1.gds";
+    tl::InputStream stream (fn);
+    db::Reader reader (stream);
+    reader.read (ly);
+  }
+
+  db::Layout target;
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (2.0, 45.0, false, db::Vector ()));
+
+  for (db::Layout::layer_iterator li = ly.begin_layers (); li != ly.end_layers (); ++li) {
+
+    unsigned int li1 = (*li).first;
+    unsigned int target_layer = target.insert_layer (*(*li).second);
+    builder.set_target_layer (target_layer);
+
+    db::cell_index_type top_cell_index = *ly.begin_top_down ();
+    db::RecursiveShapeIterator iter (ly, ly.cell (top_cell_index), li1);
+
+    iter.push (&builder);
+
+  }
+
+  CHECKPOINT();
+  db::compare_layouts (_this, target, tl::testsrc () + "/testdata/algo/hierarchy_builder_au8a.gds");
+}
+
+TEST(8b_ComplexRegionWithTransformation)
+{
+  db::Layout ly;
+  {
+    std::string fn (tl::testsrc ());
+    fn += "/testdata/algo/hierarchy_builder_l2.gds";
+    tl::InputStream stream (fn);
+    db::Reader reader (stream);
+    reader.read (ly);
+  }
+
+  db::Layout target;
+  db::ClippingHierarchyBuilderShapeReceiver clip;
+  db::HierarchyBuilder builder (&target, db::ICplxTrans (2.0, 45.0, false, db::Vector ()), &clip);
+
+  db::cell_index_type target_top = target.add_cell ("CLIP_TOP");
+
+  for (db::Layout::layer_iterator li = ly.begin_layers (); li != ly.end_layers (); ++li) {
+
+    builder.reset ();
+
+    unsigned int li1 = (*li).first;
+    unsigned int target_layer = target.insert_layer (*(*li).second);
+    builder.set_target_layer (target_layer);
+
+    db::cell_index_type top_cell_index = *ly.begin_top_down ();
+    db::Region reg;
+    reg.insert (db::Box (5000, 13000, 18500, 20000));
+    reg.insert (db::Box (11000, 20000, 18500, 36000));
+    reg.merge ();
+    db::RecursiveShapeIterator iter (ly, ly.cell (top_cell_index), li1, reg);
+
+    iter.push (&builder);
+
+    target.cell (target_top).insert (db::CellInstArray (db::CellInst (builder.initial_cell ()->cell_index ()), db::Trans ()));
+
+  }
+
+  CHECKPOINT();
+  db::compare_layouts (_this, target, tl::testsrc () + "/testdata/algo/hierarchy_builder_au8b.gds");
 }
 

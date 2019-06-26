@@ -27,6 +27,8 @@
 #include "dbHierNetworkProcessor.h"
 
 #include <map>
+#include <set>
+#include <string>
 
 namespace db
 {
@@ -36,6 +38,8 @@ class Netlist;
 class Circuit;
 class SubCircuit;
 class Net;
+class Device;
+class DeviceAbstract;
 
 /**
  *  @brief The Netlist Extractor
@@ -80,22 +84,19 @@ public:
    *  @brief Extract the nets
    *  See the class description for more details.
    */
-  void extract_nets (const db::DeepShapeStore &dss, const db::Connectivity &conn, db::Netlist *nl);
-
-  /**
-   *  @brief Gets the shape clusters
-   *  See the class description for more details.
-   */
-  const hier_clusters_type &clusters () const
-  {
-    return m_net_clusters;
-  }
+  void extract_nets (const db::DeepShapeStore &dss, unsigned int layout_index, const db::Connectivity &conn, db::Netlist &nl, hier_clusters_type &clusters, const std::string &joined_net_names = std::string ());
 
 private:
-  hier_clusters_type m_net_clusters;
+  hier_clusters_type *mp_clusters;
+  const db::Layout *mp_layout;
+  const db::Cell *mp_cell;
+  std::pair<bool, db::property_names_id_type> m_text_annot_name_id;
+  std::pair<bool, db::property_names_id_type> m_device_annot_name_id;
+  std::pair<bool, db::property_names_id_type> m_terminal_annot_name_id;
 
-  void make_device_terminal_from_property (const tl::Variant &v, db::Circuit *circuit, db::Net *net);
-  void assign_net_name (const std::string &n, db::Net *net);
+  bool instance_is_device (db::properties_id_type prop_id) const;
+  db::Device *device_from_instance (db::properties_id_type prop_id, db::Circuit *circuit) const;
+  void assign_net_names (db::Net *net, const std::set<std::string> &net_names);
 
   /**
    *  @brief Make a pin connection from clusters
@@ -120,8 +121,6 @@ private:
    *   - circuits: a lookup table of circuits vs. cell index (reverse lookup)
    *   - pins_per_cluster: a per-cell, reverse lookup table for the pin id per child cell clusters
    *     (used to find the pin ID of a subcircuit from the child cell cluster ID)
-   *   - dbu: the database unit (used to compute the micron-unit transformation of the child
-   *     cell)
    *  Updates:
    *   - subcircuits: An cell instance to SubCircuit lookup table
    */
@@ -129,10 +128,38 @@ private:
                                      const connected_clusters_type &clusters,
                                      size_t cid,
                                      db::Net *net,
-                                     std::map<db::InstElement, db::SubCircuit *> &subcircuits,
+                                     std::map<std::pair<cell_index_type, ICplxTrans>, SubCircuit *> &subcircuits,
                                      const std::map<db::cell_index_type, db::Circuit *> &circuits,
-                                     const std::map<db::cell_index_type, std::map<size_t, size_t> > &pins_per_cluster,
-                                     double dbu);
+                                     const std::map<db::cell_index_type, std::map<size_t, size_t> > &pins_per_cluster);
+
+  /**
+   *  @brief Connects the devices
+   *
+   *  Devices are identified by special cells. These carry a property with the
+   *  device class name. Inside these cells, the terminals are identified by special clusters.
+   *  The terminal IDs are coded on these clusters are a property.
+   */
+  void connect_devices (db::Circuit *circuit,
+                        const connected_clusters_type &clusters,
+                        size_t cid,
+                        db::Net *net);
+
+  /**
+   *  @brief Attaches net names from text properties
+   *
+   *  Texts (labels) are represented by special shapes. The texts are kept as properties.
+   *  This method will collect all these labels and attach them to the nets as (alternative)
+   *  names.
+   */
+  void collect_labels (const connected_clusters_type &clusters,
+                       size_t cid,
+                       std::set<std::string> &net_names);
+
+  /**
+   *  @brief Makes the terminal to cluster ID connections of the device abstract
+   */
+  void make_device_abstract_connections (db::DeviceAbstract *dm, const connected_clusters_type &clusters);
+
 };
 
 }

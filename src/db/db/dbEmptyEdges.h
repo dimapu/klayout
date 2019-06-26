@@ -56,15 +56,19 @@ public:
   virtual distance_type length (const db::Box &) const { return 0; }
   virtual Box bbox () const { return db::Box (); }
 
-  virtual EdgePairs width_check (db::Coord, bool, metrics_type, double, distance_type, distance_type) const { return EdgePairs (); }
-  virtual EdgePairs space_check (db::Coord, bool, metrics_type, double, distance_type, distance_type) const { return EdgePairs (); }
-  virtual EdgePairs enclosing_check (const Edges &, db::Coord, bool, metrics_type, double, distance_type, distance_type) const { return EdgePairs (); }
-  virtual EdgePairs overlap_check (const Edges &, db::Coord, bool, metrics_type, double, distance_type, distance_type) const { return EdgePairs (); }
-  virtual EdgePairs separation_check (const Edges &, db::Coord, bool, metrics_type, double, distance_type, distance_type) const { return EdgePairs (); }
-  virtual EdgePairs inside_check (const Edges &, db::Coord, bool, metrics_type, double, distance_type, distance_type) const { return EdgePairs (); }
+  virtual EdgePairsDelegate *width_check (db::Coord, bool, metrics_type, double, distance_type, distance_type) const;
+  virtual EdgePairsDelegate *space_check (db::Coord, bool, metrics_type, double, distance_type, distance_type) const;
+  virtual EdgePairsDelegate *enclosing_check (const Edges &, db::Coord, bool, metrics_type, double, distance_type, distance_type) const;
+  virtual EdgePairsDelegate *overlap_check (const Edges &, db::Coord, bool, metrics_type, double, distance_type, distance_type) const;
+  virtual EdgePairsDelegate *separation_check (const Edges &, db::Coord, bool, metrics_type, double, distance_type, distance_type) const;
+  virtual EdgePairsDelegate *inside_check (const Edges &, db::Coord, bool, metrics_type, double, distance_type, distance_type) const;
 
   virtual EdgesDelegate *filter_in_place (const EdgeFilterBase &) { return this; }
   virtual EdgesDelegate *filtered (const EdgeFilterBase &) const { return new EmptyEdges (); }
+  virtual EdgesDelegate *process_in_place (const EdgeProcessorBase &) { return this; }
+  virtual EdgesDelegate *processed (const EdgeProcessorBase &) const { return new EmptyEdges (); }
+  virtual EdgePairsDelegate *processed_to_edge_pairs (const EdgeToEdgePairProcessorBase &) const;
+  virtual RegionDelegate *processed_to_polygons (const EdgeToPolygonProcessorBase &) const;
 
   virtual EdgesDelegate *merged_in_place () { return this; }
   virtual EdgesDelegate *merged () const { return new EmptyEdges (); }
@@ -79,9 +83,6 @@ public:
   virtual EdgesDelegate *add (const Edges &other) const;
 
   virtual RegionDelegate *extended (coord_type, coord_type, coord_type, coord_type, bool) const;
-  virtual EdgesDelegate *start_segments (length_type, double) const { return new EmptyEdges (); }
-  virtual EdgesDelegate *end_segments (length_type, double) const { return new EmptyEdges (); }
-  virtual EdgesDelegate *centers (length_type, double) const { return new EmptyEdges (); }
 
   virtual EdgesDelegate *inside_part (const Region &) const { return new EmptyEdges (); }
   virtual EdgesDelegate *outside_part (const Region &) const { return new EmptyEdges (); }
@@ -100,6 +101,8 @@ public:
 
   virtual bool equals (const Edges &other) const;
   virtual bool less (const Edges &other) const;
+
+  virtual void insert_into (Layout *, db::cell_index_type, unsigned int) const { }
 
 private:
   EmptyEdges &operator= (const EmptyEdges &other);

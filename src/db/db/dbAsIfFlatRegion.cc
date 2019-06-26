@@ -23,8 +23,12 @@
 
 #include "dbAsIfFlatRegion.h"
 #include "dbFlatRegion.h"
+#include "dbFlatEdgePairs.h"
+#include "dbFlatEdges.h"
 #include "dbEmptyRegion.h"
+#include "dbEmptyEdgePairs.h"
 #include "dbRegion.h"
+#include "dbRegionUtils.h"
 #include "dbShapeProcessor.h"
 #include "dbBoxConvert.h"
 #include "dbBoxScanner.h"
@@ -69,80 +73,26 @@ AsIfFlatRegion::to_string (size_t nmax) const
   return os.str ();
 }
 
-Edges
+EdgesDelegate *
 AsIfFlatRegion::edges (const EdgeFilterBase *filter) const
 {
-  Edges edges;
+  std::auto_ptr<FlatEdges> result (new FlatEdges ());
 
   size_t n = 0;
   for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
     n += p->vertices ();
   }
-  edges.reserve (n);
+  result->reserve (n);
 
   for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
     for (db::Polygon::polygon_edge_iterator e = p->begin_edge (); ! e.at_end (); ++e) {
       if (! filter || filter->selected (*e)) {
-        edges.insert (*e);
+        result->insert (*e);
       }
     }
   }
 
-  return edges;
-}
-
-RegionDelegate *
-AsIfFlatRegion::hulls () const
-{
-  std::auto_ptr<FlatRegion> new_region (new FlatRegion (false));
-
-  for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
-    db::Polygon h;
-    h.assign_hull (p->begin_hull (), p->end_hull ());
-    new_region->insert (h);
-  }
-
-  return new_region.release ();
-}
-
-RegionDelegate *
-AsIfFlatRegion::holes () const
-{
-  std::auto_ptr<FlatRegion> new_region (new FlatRegion (false));
-
-  for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
-    for (size_t i = 0; i < p->holes (); ++i) {
-      db::Polygon h;
-      h.assign_hull (p->begin_hole ((unsigned int) i), p->end_hole ((unsigned int) i));
-      new_region->insert (h);
-    }
-  }
-
-  return new_region.release ();
-}
-
-RegionDelegate *
-AsIfFlatRegion::rounded_corners (double rinner, double router, unsigned int n) const
-{
-  std::auto_ptr<FlatRegion> new_region (new FlatRegion (false));
-
-  for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
-    new_region->insert (db::compute_rounded (*p, rinner, router, n));
-  }
-
-  return new_region.release ();
-}
-
-RegionDelegate *
-AsIfFlatRegion::smoothed (coord_type d) const
-{
-  std::auto_ptr<FlatRegion> new_region (new FlatRegion (false));
-
-  for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
-    new_region->insert (db::smooth (*p, d));
-  }
-
-  return new_region.release ();
+  return result.release ();
 }
 
 RegionDelegate *
@@ -300,115 +250,73 @@ AsIfFlatRegion::filtered (const PolygonFilterBase &filter) const
   return new_region.release ();
 }
 
-namespace
+RegionDelegate *
+AsIfFlatRegion::processed (const PolygonProcessorBase &filter) const
 {
+  std::auto_ptr<FlatRegion> new_region (new FlatRegion ());
+  if (filter.result_must_not_be_merged ()) {
+    new_region->set_merged_semantics (false);
+  }
 
-/**
- *  @brief A helper class for the region to edge interaction functionality
- *
- *  Note: This special scanner uses pointers to two different objects: edges and polygons.
- *  It uses odd value pointers to indicate pointers to polygons and even value pointers to indicate
- *  pointers to edges.
- *
- *  There is a special box converter which is able to sort that out as well.
- */
-template <class OutputContainer>
-class region_to_edge_interaction_filter
-  : public db::box_scanner_receiver<char, size_t>
+  std::vector<db::Polygon> poly_res;
+
+  for (RegionIterator p (filter.requires_raw_input () ? begin () : begin_merged ()); ! p.at_end (); ++p) {
+
+    poly_res.clear ();
+    filter.process (*p, poly_res);
+    for (std::vector<db::Polygon>::const_iterator pr = poly_res.begin (); pr != poly_res.end (); ++pr) {
+      new_region->insert (*pr);
+    }
+
+  }
+
+  return new_region.release ();
+}
+
+EdgesDelegate *
+AsIfFlatRegion::processed_to_edges (const PolygonToEdgeProcessorBase &filter) const
 {
-public:
-  region_to_edge_interaction_filter (OutputContainer &output)
-    : mp_output (&output), m_inverse (false)
-  {
-    //  .. nothing yet ..
+  std::auto_ptr<FlatEdges> new_edges (new FlatEdges ());
+  if (filter.result_must_not_be_merged ()) {
+    new_edges->set_merged_semantics (false);
   }
 
-  region_to_edge_interaction_filter (OutputContainer &output, const db::RegionIterator &polygons)
-    : mp_output (&output), m_inverse (true)
-  {
-    for (db::RegionIterator p = polygons; ! p.at_end (); ++p) {
-      m_seen.insert (&*p);
+  std::vector<db::Edge> edge_res;
+
+  for (RegionIterator p (filter.requires_raw_input () ? begin () : begin_merged ()); ! p.at_end (); ++p) {
+
+    edge_res.clear ();
+    filter.process (*p, edge_res);
+    for (std::vector<db::Edge>::const_iterator er = edge_res.begin (); er != edge_res.end (); ++er) {
+      new_edges->insert (*er);
     }
+
   }
 
-  void add (const char *o1, size_t p1, const char *o2, size_t p2)
-  {
-    const db::Edge *e = 0;
-    const db::Polygon *p = 0;
+  return new_edges.release ();
+}
 
-    //  Note: edges have property 0 and have even-valued pointers.
-    //  Polygons have property 1 and odd-valued pointers.
-    if (p1 == 0 && p2 == 1) {
-      e = reinterpret_cast<const db::Edge *> (o1);
-      p = reinterpret_cast<const db::Polygon *> (o2 - 1);
-    } else if (p1 == 1 && p2 == 0) {
-      e = reinterpret_cast<const db::Edge *> (o2);
-      p = reinterpret_cast<const db::Polygon *> (o1 - 1);
-    }
-
-    if (e && p && (m_seen.find (p) == m_seen.end ()) != m_inverse) {
-
-      //  A polygon and an edge interact if the edge is either inside completely
-      //  of at least one edge of the polygon intersects with the edge
-      bool interacts = false;
-      if (p->box ().contains (e->p1 ()) && db::inside_poly (p->begin_edge (), e->p1 ()) >= 0) {
-        interacts = true;
-      } else {
-        for (db::Polygon::polygon_edge_iterator pe = p->begin_edge (); ! pe.at_end () && ! interacts; ++pe) {
-          if ((*pe).intersect (*e)) {
-            interacts = true;
-          }
-        }
-      }
-
-      if (interacts) {
-        if (m_inverse) {
-          m_seen.erase (p);
-        } else {
-          m_seen.insert (p);
-          mp_output->insert (*p);
-        }
-      }
-
-    }
-  }
-
-  void fill_output ()
-  {
-    for (std::set<const db::Polygon *>::const_iterator p = m_seen.begin (); p != m_seen.end (); ++p) {
-      mp_output->insert (**p);
-    }
-  }
-
-private:
-  OutputContainer *mp_output;
-  std::set<const db::Polygon *> m_seen;
-  bool m_inverse;
-};
-
-/**
- *  @brief A special box converter that splits the pointers into polygon and edge pointers
- */
-struct EdgeOrRegionBoxConverter
+EdgePairsDelegate *
+AsIfFlatRegion::processed_to_edge_pairs (const PolygonToEdgePairProcessorBase &filter) const
 {
-  typedef db::Box box_type;
-
-  db::Box operator() (const char &c) const
-  {
-    //  Note: edges have property 0 and have even-valued pointers.
-    //  Polygons have property 1 and odd-valued pointers.
-    const char *cp = &c;
-    if ((size_t (cp) & 1) == 1) {
-      //  it's a polygon
-      return (reinterpret_cast<const db::Polygon *> (cp - 1))->box ();
-    } else {
-      //  it's an edge
-      const db::Edge *e = reinterpret_cast<const db::Edge *> (cp);
-      return db::Box (e->p1 (), e->p2 ());
-    }
+  std::auto_ptr<FlatEdgePairs> new_edge_pairs (new FlatEdgePairs ());
+  if (filter.result_must_not_be_merged ()) {
+    new_edge_pairs->set_merged_semantics (false);
   }
-};
 
+  std::vector<db::EdgePair> edge_pair_res;
+
+  for (RegionIterator p (filter.requires_raw_input () ? begin () : begin_merged ()); ! p.at_end (); ++p) {
+
+    edge_pair_res.clear ();
+    filter.process (*p, edge_pair_res);
+    for (std::vector<db::EdgePair>::const_iterator epr = edge_pair_res.begin (); epr != edge_pair_res.end (); ++epr) {
+      new_edge_pairs->insert (*epr);
+    }
+
+  }
+
+  return new_edge_pairs.release ();
 }
 
 RegionDelegate *
@@ -424,30 +332,31 @@ AsIfFlatRegion::selected_interacting_generic (const Edges &other, bool inverse) 
     return clone ();
   }
 
-  db::box_scanner<char, size_t> scanner (report_progress (), progress_desc ());
-  scanner.reserve (size () + other.size ());
+  db::box_scanner2<db::Polygon, size_t, db::Edge, size_t> scanner (report_progress (), progress_desc ());
+  scanner.reserve1 (size ());
+  scanner.reserve2 (other.size ());
+
+  std::auto_ptr<FlatRegion> output (new FlatRegion (false));
+  region_to_edge_interaction_filter<Shapes> filter (output->raw_polygons (), inverse);
 
   AddressablePolygonDelivery p (begin_merged (), has_valid_merged_polygons ());
 
   for ( ; ! p.at_end (); ++p) {
-    scanner.insert ((char *) p.operator-> () + 1, 1);
+    scanner.insert1 (p.operator-> (), 0);
+    if (inverse) {
+      filter.preset (p.operator-> ());
+    }
   }
 
   AddressableEdgeDelivery e (other.addressable_edges ());
 
   for ( ; ! e.at_end (); ++e) {
-    scanner.insert ((char *) e.operator-> (), 0);
+    scanner.insert2 (e.operator-> (), 0);
   }
 
-  std::auto_ptr<FlatRegion> output (new FlatRegion (false));
-  EdgeOrRegionBoxConverter bc;
+  scanner.process (filter, 1, db::box_convert<db::Polygon> (), db::box_convert<db::Edge> ());
 
-  if (! inverse) {
-    region_to_edge_interaction_filter<Shapes> filter (output->raw_polygons ());
-    scanner.process (filter, 1, bc);
-  } else {
-    region_to_edge_interaction_filter<Shapes> filter (output->raw_polygons (), RegionIterator (begin_merged ()));
-    scanner.process (filter, 1, bc);
+  if (inverse) {
     filter.fill_output ();
   }
 
@@ -458,6 +367,7 @@ RegionDelegate *
 AsIfFlatRegion::selected_interacting_generic (const Region &other, int mode, bool touching, bool inverse) const
 {
   db::EdgeProcessor ep (report_progress (), progress_desc ());
+  ep.set_base_verbosity (base_verbosity ());
 
   //  shortcut
   if (empty ()) {
@@ -513,39 +423,56 @@ AsIfFlatRegion::selected_interacting_generic (const Region &other, int mode, boo
   return output.release ();
 }
 
-EdgePairs
-AsIfFlatRegion::grid_check (db::Coord gx, db::Coord gy) const
+template <class Trans>
+void
+AsIfFlatRegion::produce_markers_for_grid_check (const db::Polygon &poly, const Trans &tr, db::Coord gx, db::Coord gy, db::Shapes &shapes)
 {
-  EdgePairs out;
-
   gx = std::max (db::Coord (1), gx);
   gy = std::max (db::Coord (1), gy);
 
-  for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
+  for (size_t i = 0; i < poly.holes () + 1; ++i) {
 
-    for (size_t i = 0; i < p->holes () + 1; ++i) {
+    db::Polygon::polygon_contour_iterator b, e;
 
-      db::Polygon::polygon_contour_iterator b, e;
+    if (i == 0) {
+      b = poly.begin_hull ();
+      e = poly.end_hull ();
+    } else {
+      b = poly.begin_hole ((unsigned int) (i - 1));
+      e = poly.end_hole ((unsigned int)  (i - 1));
+    }
 
-      if (i == 0) {
-        b = p->begin_hull ();
-        e = p->end_hull ();
-      } else {
-        b = p->begin_hole ((unsigned int) (i - 1));
-        e = p->end_hole ((unsigned int)  (i - 1));
+    for (db::Polygon::polygon_contour_iterator pt = b; pt != e; ++pt) {
+      db::Point p = tr * *pt;
+      if ((p.x () % gx) != 0 || (p.y () % gy) != 0) {
+        shapes.insert (EdgePair (db::Edge (p, p), db::Edge (p, p)));
       }
-
-      for (db::Polygon::polygon_contour_iterator pt = b; pt != e; ++pt) {
-        if (((*pt).x () % gx) != 0 || ((*pt).y () % gy) != 0) {
-          out.insert (EdgePair (db::Edge (*pt, *pt), db::Edge (*pt, *pt)));
-        }
-      }
-
     }
 
   }
+}
 
-  return out;
+template void AsIfFlatRegion::produce_markers_for_grid_check<db::ICplxTrans> (const db::Polygon &poly, const db::ICplxTrans &tr, db::Coord gx, db::Coord gy, db::Shapes &shapes);
+template void AsIfFlatRegion::produce_markers_for_grid_check<db::UnitTrans> (const db::Polygon &poly, const db::UnitTrans &tr, db::Coord gx, db::Coord gy, db::Shapes &shapes);
+
+EdgePairsDelegate *
+AsIfFlatRegion::grid_check (db::Coord gx, db::Coord gy) const
+{
+  if (gx < 0 || gy < 0) {
+    throw tl::Exception (tl::to_string (tr ("Grid check requires a positive grid value")));
+  }
+
+  if (gx == 0 && gy == 0) {
+    return new EmptyEdgePairs ();
+  }
+
+  std::auto_ptr<db::FlatEdgePairs> res (new db::FlatEdgePairs ());
+
+  for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
+    produce_markers_for_grid_check (*p, db::UnitTrans (), gx, gy, res->raw_edge_pairs ());
+  }
+
+  return res.release ();
 }
 
 static bool ac_less (double cos_a, bool gt180_a, double cos_b, bool gt180_b)
@@ -561,50 +488,61 @@ static bool ac_less (double cos_a, bool gt180_a, double cos_b, bool gt180_b)
   }
 }
 
-EdgePairs
-AsIfFlatRegion::angle_check (double min, double max, bool inverse) const
+template <class Trans>
+void
+AsIfFlatRegion::produce_markers_for_angle_check (const db::Polygon &poly, const Trans &tr, double min, double max, bool inverse, db::Shapes &shapes)
 {
-  EdgePairs out;
-
   double cos_min = cos (std::max (0.0, std::min (360.0, min)) / 180.0 * M_PI);
   double cos_max = cos (std::max (0.0, std::min (360.0, max)) / 180.0 * M_PI);
   bool gt180_min = min > 180.0;
   bool gt180_max = max > 180.0;
 
-  for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
+  for (size_t i = 0; i < poly.holes () + 1; ++i) {
 
-    for (size_t i = 0; i < p->holes () + 1; ++i) {
+    const db::Polygon::contour_type *h = 0;
+    if (i == 0) {
+      h = &poly.hull ();
+    } else {
+      h = &poly.hole ((unsigned int) (i - 1));
+    }
 
-      const db::Polygon::contour_type *h = 0;
-      if (i == 0) {
-        h = &p->hull ();
-      } else {
-        h = &p->hole ((unsigned int) (i - 1));
-      }
+    size_t np = h->size ();
 
-      size_t np = h->size ();
+    for (size_t j = 0; j < np; ++j) {
 
-      for (size_t j = 0; j < np; ++j) {
+      db::Edge e ((*h) [j], (*h) [(j + 1) % np]);
+      e.transform (tr);
+      db::Edge ee (e.p2 (), (*h) [(j + 2) % np]);
+      ee.transform (tr);
 
-        db::Edge e ((*h) [j], (*h) [(j + 1) % np]);
-        db::Edge ee (e.p2 (), (*h) [(j + 2) % np]);
-        double le = e.double_length ();
-        double lee = ee.double_length ();
+      double le = e.double_length ();
+      double lee = ee.double_length ();
 
-        double cos_a = -db::sprod (e, ee) / (le * lee);
-        bool gt180_a = db::vprod_sign (e, ee) > 0;
+      double cos_a = -db::sprod (e, ee) / (le * lee);
+      bool gt180_a = db::vprod_sign (e, ee) > 0;
 
-        if ((ac_less (cos_a, gt180_a, cos_max, gt180_max) && !ac_less (cos_a, gt180_a, cos_min, gt180_min)) == !inverse) {
-          out.insert (EdgePair (e, ee));
-        }
-
+      if ((ac_less (cos_a, gt180_a, cos_max, gt180_max) && !ac_less (cos_a, gt180_a, cos_min, gt180_min)) == !inverse) {
+        shapes.insert (EdgePair (e, ee));
       }
 
     }
 
   }
+}
 
-  return out;
+template void AsIfFlatRegion::produce_markers_for_angle_check<db::ICplxTrans> (const db::Polygon &poly, const db::ICplxTrans &tr, double min, double max, bool inverse, db::Shapes &shapes);
+template void AsIfFlatRegion::produce_markers_for_angle_check<db::UnitTrans> (const db::Polygon &poly, const db::UnitTrans &tr, double min, double max, bool inverse, db::Shapes &shapes);
+
+EdgePairsDelegate *
+AsIfFlatRegion::angle_check (double min, double max, bool inverse) const
+{
+  std::auto_ptr<db::FlatEdgePairs> res (new db::FlatEdgePairs ());
+
+  for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
+    produce_markers_for_angle_check (*p, db::UnitTrans (), min, max, inverse, res->raw_edge_pairs ());
+  }
+
+  return res.release ();
 }
 
 static inline db::Coord snap_to_grid (db::Coord c, db::Coord g)
@@ -618,357 +556,65 @@ static inline db::Coord snap_to_grid (db::Coord c, db::Coord g)
   return c;
 }
 
+db::Polygon
+AsIfFlatRegion::snapped_polygon (const db::Polygon &poly, db::Coord gx, db::Coord gy, std::vector<db::Point> &heap)
+{
+  db::Polygon pnew;
+
+  for (size_t i = 0; i < poly.holes () + 1; ++i) {
+
+    heap.clear ();
+
+    db::Polygon::polygon_contour_iterator b, e;
+
+    if (i == 0) {
+      b = poly.begin_hull ();
+      e = poly.end_hull ();
+    } else {
+      b = poly.begin_hole ((unsigned int)  (i - 1));
+      e = poly.end_hole ((unsigned int)  (i - 1));
+    }
+
+    for (db::Polygon::polygon_contour_iterator pt = b; pt != e; ++pt) {
+      heap.push_back (db::Point (snap_to_grid ((*pt).x (), gx), snap_to_grid ((*pt).y (), gy)));
+    }
+
+    if (i == 0) {
+      pnew.assign_hull (heap.begin (), heap.end ());
+    } else {
+      pnew.insert_hole (heap.begin (), heap.end ());
+    }
+
+  }
+
+  return pnew;
+}
+
 RegionDelegate *
 AsIfFlatRegion::snapped (db::Coord gx, db::Coord gy)
 {
+  if (gx < 0 || gy < 0) {
+    throw tl::Exception (tl::to_string (tr ("Grid check requires a positive grid value")));
+  }
+
   std::auto_ptr<FlatRegion> new_region (new FlatRegion (merged_semantics ()));
 
   gx = std::max (db::Coord (1), gx);
   gy = std::max (db::Coord (1), gy);
 
-  std::vector<db::Point> pts;
+  std::vector<db::Point> heap;
 
   for (RegionIterator p (begin_merged ()); ! p.at_end (); ++p) {
-
-    db::Polygon pnew;
-
-    for (size_t i = 0; i < p->holes () + 1; ++i) {
-
-      pts.clear ();
-
-      db::Polygon::polygon_contour_iterator b, e;
-
-      if (i == 0) {
-        b = p->begin_hull ();
-        e = p->end_hull ();
-      } else {
-        b = p->begin_hole ((unsigned int)  (i - 1));
-        e = p->end_hole ((unsigned int)  (i - 1));
-      }
-
-      for (db::Polygon::polygon_contour_iterator pt = b; pt != e; ++pt) {
-        pts.push_back (db::Point (snap_to_grid ((*pt).x (), gx), snap_to_grid ((*pt).y (), gy)));
-      }
-
-      if (i == 0) {
-        pnew.assign_hull (pts.begin (), pts.end ());
-      } else {
-        pnew.insert_hole (pts.begin (), pts.end ());
-      }
-
-    }
-
-    new_region->raw_polygons ().insert (pnew);
-
+    new_region->raw_polygons ().insert (snapped_polygon (*p, gx, gy, heap));
   }
 
   return new_region.release ();
 }
 
-namespace
-{
-  /**
-   *  @brief A helper class to implement the strange polygon detector
-   */
-  struct StrangePolygonInsideFunc
-  {
-    inline bool operator() (int wc) const
-    {
-      return wc < 0 || wc > 1;
-    }
-  };
-}
-
-RegionDelegate *
-AsIfFlatRegion::strange_polygon_check () const
-{
-  EdgeProcessor ep;
-  std::auto_ptr<FlatRegion> new_region (new FlatRegion (merged_semantics ()));
-
-  for (RegionIterator p (begin ()); ! p.at_end (); ++p) {
-
-    ep.clear ();
-    ep.insert (*p);
-
-    StrangePolygonInsideFunc inside;
-    db::GenericMerge<StrangePolygonInsideFunc> op (inside);
-    db::ShapeGenerator pc (new_region->raw_polygons (), false);
-    db::PolygonGenerator pg (pc, false, false);
-    ep.process (pg, op);
-  }
-
-  return new_region.release ();
-}
-
-
-namespace {
-
-/**
- *  @brief A helper class for the DRC functionality which acts as an edge pair receiver
- */
-class Edge2EdgeCheck
-  : public db::box_scanner_receiver<db::Edge, size_t>
-{
-public:
-  Edge2EdgeCheck (const EdgeRelationFilter &check, EdgePairs &output, bool different_polygons, bool requires_different_layers)
-    : mp_check (&check), mp_output (&output), m_requires_different_layers (requires_different_layers), m_different_polygons (different_polygons),
-      m_pass (0)
-  {
-    m_distance = check.distance ();
-  }
-
-  bool prepare_next_pass ()
-  {
-    ++m_pass;
-
-    if (m_pass == 1) {
-
-      if (! m_ep.empty ()) {
-        m_ep_discarded.resize (m_ep.size (), false);
-        return true;
-      }
-
-    } else if (m_pass == 2) {
-
-      std::vector<bool>::const_iterator d = m_ep_discarded.begin ();
-      std::vector<db::EdgePair>::const_iterator ep = m_ep.begin ();
-      while (ep != m_ep.end ()) {
-        tl_assert (d != m_ep_discarded.end ());
-        if (! *d) {
-          mp_output->insert (*ep);
-        }
-        ++d;
-        ++ep;
-      }
-
-    }
-
-    return false;
-  }
-
-  void add (const db::Edge *o1, size_t p1, const db::Edge *o2, size_t p2)
-  {
-    if (m_pass == 0) {
-
-      //  Overlap or inside checks require input from different layers
-      if ((! m_different_polygons || p1 != p2) && (! m_requires_different_layers || ((p1 ^ p2) & 1) != 0)) {
-
-        //  ensure that the first check argument is of layer 1 and the second of
-        //  layer 2 (unless both are of the same layer)
-        int l1 = int (p1 & size_t (1));
-        int l2 = int (p2 & size_t (1));
-
-        db::EdgePair ep;
-        if (mp_check->check (l1 <= l2 ? *o1 : *o2, l1 <= l2 ? *o2 : *o1, &ep)) {
-
-          //  found a violation: store inside the local buffer for now. In the second
-          //  pass we will eliminate those which are shielded completely.
-          size_t n = m_ep.size ();
-          m_ep.push_back (ep);
-          m_e2ep.insert (std::make_pair (std::make_pair (*o1, p1), n));
-          m_e2ep.insert (std::make_pair (std::make_pair (*o2, p2), n));
-
-        }
-
-      }
-
-    } else {
-
-      //  a simple (complete) shielding implementation which is based on the
-      //  assumption that shielding is relevant as soon as a foreign edge cuts through
-      //  both of the edge pair's connecting edges.
-
-      //  TODO: this implementation does not take into account the nature of the
-      //  EdgePair - because of "whole_edge" it may not reflect the part actually
-      //  violating the distance.
-
-      std::vector<size_t> n1, n2;
-
-      for (unsigned int p = 0; p < 2; ++p) {
-
-        std::pair<db::Edge, size_t> k (*o1, p1);
-        for (std::multimap<std::pair<db::Edge, size_t>, size_t>::const_iterator i = m_e2ep.find (k); i != m_e2ep.end () && i->first == k; ++i) {
-          n1.push_back (i->second);
-        }
-
-        std::sort (n1.begin (), n1.end ());
-
-        std::swap (o1, o2);
-        std::swap (p1, p2);
-        n1.swap (n2);
-
-      }
-
-      for (unsigned int p = 0; p < 2; ++p) {
-
-        std::vector<size_t> nn;
-        std::set_difference (n1.begin (), n1.end (), n2.begin (), n2.end (), std::back_inserter (nn));
-
-        for (std::vector<size_t>::const_iterator i = nn.begin (); i != nn.end (); ++i) {
-          if (! m_ep_discarded [*i]) {
-            db::EdgePair ep = m_ep [*i].normalized ();
-            if (db::Edge (ep.first ().p1 (), ep.second ().p2 ()).intersect (*o2) &&
-                db::Edge (ep.second ().p1 (), ep.first ().p2 ()).intersect (*o2)) {
-              m_ep_discarded [*i] = true;
-            }
-          }
-        }
-
-        std::swap (o1, o2);
-        std::swap (p1, p2);
-        n1.swap (n2);
-
-      }
-
-    }
-
-  }
-
-  /**
-   *  @brief Gets a value indicating whether the check requires different layers
-   */
-  bool requires_different_layers () const
-  {
-    return m_requires_different_layers;
-  }
-
-  /**
-   *  @brief Sets a value indicating whether the check requires different layers
-   */
-  void set_requires_different_layers (bool f)
-  {
-    m_requires_different_layers = f;
-  }
-
-  /**
-   *  @brief Gets a value indicating whether the check requires different layers
-   */
-  bool different_polygons () const
-  {
-    return m_different_polygons;
-  }
-
-  /**
-   *  @brief Sets a value indicating whether the check requires different layers
-   */
-  void set_different_polygons (bool f)
-  {
-    m_different_polygons = f;
-  }
-
-  /**
-   *  @brief Gets the distance value
-   */
-  EdgeRelationFilter::distance_type distance () const
-  {
-    return m_distance;
-  }
-
-private:
-  const EdgeRelationFilter *mp_check;
-  EdgePairs *mp_output;
-  bool m_requires_different_layers;
-  bool m_different_polygons;
-  EdgeRelationFilter::distance_type m_distance;
-  std::vector<db::EdgePair> m_ep;
-  std::multimap<std::pair<db::Edge, size_t>, size_t> m_e2ep;
-  std::vector<bool> m_ep_discarded;
-  unsigned int m_pass;
-};
-
-/**
- *  @brief A helper class for the DRC functionality which acts as an edge pair receiver
- */
-class Poly2PolyCheck
-  : public db::box_scanner_receiver<db::Polygon, size_t>
-{
-public:
-  Poly2PolyCheck (Edge2EdgeCheck &output)
-    : mp_output (&output)
-  {
-    //  .. nothing yet ..
-  }
-
-  void finish (const db::Polygon *o, size_t p)
-  {
-    enter (*o, p);
-  }
-
-  void enter (const db::Polygon &o, size_t p)
-  {
-    if (! mp_output->requires_different_layers () && ! mp_output->different_polygons ()) {
-
-      //  finally we check the polygons vs. itself for checks involving intra-polygon interactions
-
-      m_scanner.clear ();
-      m_scanner.reserve (o.vertices ());
-
-      m_edges.clear ();
-      m_edges.reserve (o.vertices ());
-
-      for (db::Polygon::polygon_edge_iterator e = o.begin_edge (); ! e.at_end (); ++e) {
-        m_edges.push_back (*e);
-        m_scanner.insert (& m_edges.back (), p);
-      }
-
-      tl_assert (m_edges.size () == o.vertices ());
-
-      m_scanner.process (*mp_output, mp_output->distance (), db::box_convert<db::Edge> ());
-
-    }
-  }
-
-  void add (const db::Polygon *o1, size_t p1, const db::Polygon *o2, size_t p2)
-  {
-    enter (*o1, p1, *o2, p2);
-  }
-
-  void enter (const db::Polygon &o1, size_t p1, const db::Polygon &o2, size_t p2)
-  {
-    if ((! mp_output->different_polygons () || p1 != p2) && (! mp_output->requires_different_layers () || ((p1 ^ p2) & 1) != 0)) {
-
-      m_scanner.clear ();
-      m_scanner.reserve (o1.vertices () + o2.vertices ());
-
-      m_edges.clear ();
-      m_edges.reserve (o1.vertices () + o2.vertices ());
-
-      for (db::Polygon::polygon_edge_iterator e = o1.begin_edge (); ! e.at_end (); ++e) {
-        m_edges.push_back (*e);
-        m_scanner.insert (& m_edges.back (), p1);
-      }
-
-      for (db::Polygon::polygon_edge_iterator e = o2.begin_edge (); ! e.at_end (); ++e) {
-        m_edges.push_back (*e);
-        m_scanner.insert (& m_edges.back (), p2);
-      }
-
-      tl_assert (m_edges.size () == o1.vertices () + o2.vertices ());
-
-      //  temporarily disable intra-polygon check in that step .. we do that later in finish()
-      //  if required (#650).
-      bool no_intra = mp_output->different_polygons ();
-      mp_output->set_different_polygons (true);
-
-      m_scanner.process (*mp_output, mp_output->distance (), db::box_convert<db::Edge> ());
-
-      mp_output->set_different_polygons (no_intra);
-
-    }
-  }
-
-private:
-  db::box_scanner<db::Edge, size_t> m_scanner;
-  Edge2EdgeCheck *mp_output;
-  std::vector<db::Edge> m_edges;
-};
-
-}
-
-EdgePairs
+EdgePairsDelegate *
 AsIfFlatRegion::run_check (db::edge_relation_type rel, bool different_polygons, const Region *other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
 {
-  EdgePairs result;
+  std::auto_ptr<FlatEdgePairs> result (new FlatEdgePairs ());
 
   db::box_scanner<db::Polygon, size_t> scanner (report_progress (), progress_desc ());
   scanner.reserve (size () + (other ? other->size () : 0));
@@ -996,35 +642,36 @@ AsIfFlatRegion::run_check (db::edge_relation_type rel, bool different_polygons, 
   }
 
   EdgeRelationFilter check (rel, d, metrics);
-  check.set_include_zero (other != 0);
+  check.set_include_zero (false);
   check.set_whole_edges (whole_edges);
   check.set_ignore_angle (ignore_angle);
   check.set_min_projection (min_projection);
   check.set_max_projection (max_projection);
 
-  Edge2EdgeCheck edge_check (check, result, different_polygons, other != 0);
-  Poly2PolyCheck poly_check (edge_check);
+  edge2edge_check<db::FlatEdgePairs> edge_check (check, *result, different_polygons, other != 0);
+  poly2poly_check<db::FlatEdgePairs> poly_check (edge_check);
 
   do {
     scanner.process (poly_check, d, db::box_convert<db::Polygon> ());
   } while (edge_check.prepare_next_pass ());
 
-  return result;
+  return result.release ();
 }
 
-EdgePairs
+EdgePairsDelegate *
 AsIfFlatRegion::run_single_polygon_check (db::edge_relation_type rel, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const
 {
-  EdgePairs result;
+  std::auto_ptr<FlatEdgePairs> result (new FlatEdgePairs ());
 
   EdgeRelationFilter check (rel, d, metrics);
+  check.set_include_zero (false);
   check.set_whole_edges (whole_edges);
   check.set_ignore_angle (ignore_angle);
   check.set_min_projection (min_projection);
   check.set_max_projection (max_projection);
 
-  Edge2EdgeCheck edge_check (check, result, false, false);
-  Poly2PolyCheck poly_check (edge_check);
+  edge2edge_check<db::FlatEdgePairs> edge_check (check, *result, false, false);
+  poly2poly_check<db::FlatEdgePairs> poly_check (edge_check);
 
   do {
 
@@ -1036,7 +683,7 @@ AsIfFlatRegion::run_single_polygon_check (db::edge_relation_type rel, db::Coord 
 
   } while (edge_check.prepare_next_pass ());
 
-  return result;
+  return result.release ();
 }
 
 RegionDelegate *
@@ -1058,6 +705,7 @@ AsIfFlatRegion::merged (bool min_coherence, unsigned int min_wc) const
   } else {
 
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;
@@ -1117,7 +765,7 @@ AsIfFlatRegion::sized (coord_type dx, coord_type dy, unsigned int mode) const
     db::Box b = bbox ().enlarged (db::Vector (dx, dy));
     return region_from_box (b);
 
-  } else if (! merged_semantics ()) {
+  } else if (! merged_semantics () || is_merged ()) {
 
     //  Generic case
     std::auto_ptr<FlatRegion> new_region (new FlatRegion (false /*output isn't merged*/));
@@ -1135,6 +783,7 @@ AsIfFlatRegion::sized (coord_type dx, coord_type dy, unsigned int mode) const
 
     //  Generic case - the size operation will merge first
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;
@@ -1153,7 +802,7 @@ AsIfFlatRegion::sized (coord_type dx, coord_type dy, unsigned int mode) const
     db::ShapeGenerator pc (new_region->raw_polygons (), true /*clear*/);
     db::PolygonGenerator pg2 (pc, false /*don't resolve holes*/, true /*min. coherence*/);
     db::SizingPolygonFilter siz (pg2, dx, dy, mode);
-    db::PolygonGenerator pg (siz, false /*don't resolve holes*/, false /*min. coherence*/);
+    db::PolygonGenerator pg (siz, false /*don't resolve holes*/, min_coherence () /*min. coherence*/);
     db::BooleanOp op (db::BooleanOp::Or);
     ep.process (pg, op);
 
@@ -1216,6 +865,7 @@ AsIfFlatRegion::and_with (const Region &other) const
 
     //  Generic case
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;
@@ -1270,6 +920,7 @@ AsIfFlatRegion::not_with (const Region &other) const
 
     //  Generic case
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;
@@ -1322,6 +973,7 @@ AsIfFlatRegion::xor_with (const Region &other) const
 
     //  Generic case
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;
@@ -1375,6 +1027,7 @@ AsIfFlatRegion::or_with (const Region &other) const
 
     //  Generic case
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;
@@ -1450,6 +1103,9 @@ AsIfFlatRegion::add (const Region &other) const
 void
 AsIfFlatRegion::insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const
 {
+  //  improves performance when inserting an original layout into the same layout
+  db::LayoutLocker locker (layout);
+
   db::Shapes &shapes = layout->cell (into_cell).shapes (into_layer);
   for (RegionIterator p (begin ()); ! p.at_end (); ++p) {
     shapes.insert (*p);

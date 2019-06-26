@@ -26,6 +26,7 @@
 #include "dbEdgePairs.h"
 #include "dbEmptyEdgePairs.h"
 #include "dbFlatEdgePairs.h"
+#include "dbDeepEdgePairs.h"
 #include "dbOriginalLayerEdgePairs.h"
 #include "dbEdges.h"
 #include "dbRegion.h"
@@ -56,7 +57,7 @@ EdgePairs::EdgePairs (EdgePairsDelegate *delegate)
 }
 
 EdgePairs::EdgePairs (const EdgePairs &other)
-  : mp_delegate (other.mp_delegate->clone ())
+  : gsi::ObjectBase (), mp_delegate (other.mp_delegate->clone ())
 {
   //  .. nothing yet ..
 }
@@ -79,13 +80,23 @@ EdgePairs::EdgePairs (const RecursiveShapeIterator &si, const db::ICplxTrans &tr
   mp_delegate = new OriginalLayerEdgePairs (si, trans);
 }
 
+EdgePairs::EdgePairs (const RecursiveShapeIterator &si, DeepShapeStore &dss)
+{
+  mp_delegate = new DeepEdgePairs (si, dss);
+}
+
+EdgePairs::EdgePairs (const RecursiveShapeIterator &si, DeepShapeStore &dss, const db::ICplxTrans &trans)
+{
+  mp_delegate = new DeepEdgePairs (si, dss, trans);
+}
+
 template <class Sh>
 void EdgePairs::insert (const Sh &shape)
 {
   flat_edge_pairs ()->insert (shape);
 }
 
-template void EdgePairs::insert (const db::EdgePair &);
+template DB_PUBLIC void EdgePairs::insert (const db::EdgePair &);
 
 void EdgePairs::insert (const db::Shape &shape)
 {
@@ -98,9 +109,9 @@ void EdgePairs::insert (const db::Shape &shape, const T &trans)
   flat_edge_pairs ()->insert (shape, trans);
 }
 
-template void EdgePairs::insert (const db::Shape &, const db::ICplxTrans &);
-template void EdgePairs::insert (const db::Shape &, const db::Trans &);
-template void EdgePairs::insert (const db::Shape &, const db::Disp &);
+template DB_PUBLIC void EdgePairs::insert (const db::Shape &, const db::ICplxTrans &);
+template DB_PUBLIC void EdgePairs::insert (const db::Shape &, const db::Trans &);
+template DB_PUBLIC void EdgePairs::insert (const db::Shape &, const db::Disp &);
 
 void EdgePairs::clear ()
 {
@@ -120,9 +131,9 @@ EdgePairs &EdgePairs::transform (const T &trans)
 }
 
 //  explicit instantiations
-template EdgePairs &EdgePairs::transform (const db::ICplxTrans &);
-template EdgePairs &EdgePairs::transform (const db::Trans &);
-template EdgePairs &EdgePairs::transform (const db::Disp &);
+template DB_PUBLIC EdgePairs &EdgePairs::transform (const db::ICplxTrans &);
+template DB_PUBLIC EdgePairs &EdgePairs::transform (const db::Trans &);
+template DB_PUBLIC EdgePairs &EdgePairs::transform (const db::Disp &);
 
 const db::RecursiveShapeIterator &
 EdgePairs::iter () const

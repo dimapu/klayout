@@ -62,6 +62,12 @@ public:
   ~DeepLayer ();
 
   /**
+   *  @brief The constructor from the detailed information
+   *  Use this constructor if you know what you're doing.
+   */
+  DeepLayer (DeepShapeStore *store, unsigned int layout, unsigned int layer);
+
+  /**
    *  @brief Conversion operator from Region to DeepLayer
    *  This requires the Region to be a DeepRegion. Otherwise, this constructor will assert
    */
@@ -131,6 +137,12 @@ public:
   void insert_into (Layout *into_layout, db::cell_index_type into_cell, unsigned int into_layer) const;
 
   /**
+   *  @brief Inserts the edge pairs layer into the given layout, starting from the given cell and into the given layer
+   *  The edge pairs are converted to polygons with the given enlargement.
+   */
+  void insert_into_as_polygons (db::Layout *into_layout, db::cell_index_type into_cell, unsigned int into_layer, db::Coord enl) const;
+
+  /**
    *  @brief Creates a derived new deep layer
    *  Derived layers use the same layout and context, but are initially
    *  empty layers for use as output layers on the same hierarchy.
@@ -141,6 +153,30 @@ public:
    *  @brief Creates a copy of this layer
    */
   DeepLayer copy () const;
+
+  /**
+   *  @brief Adds shapes from another deep layer to this one
+   */
+  void add_from (const DeepLayer &dl);
+
+  /**
+   *  @brief Separates cell variants (see DeepShapeStore::separate_variants)
+   */
+  template <class VarCollector>
+  void separate_variants (VarCollector &collector);
+
+  /**
+   *  @brief Commits shapes for variants to the existing cell hierarchy
+   *
+   *  The "to_propagate" collection is a set of shapes per cell and variant. The
+   *  algorithm will put these shapes into the existing hierarchy putting the
+   *  shapes into the proper parent cells to resolve variants.
+   *
+   *  This map will be modified by the algorithm and should be discarded
+   *  later.
+   */
+  template <class VarCollector>
+  void commit_shapes (VarCollector &collector, std::map<db::cell_index_type, std::map<db::ICplxTrans, db::Shapes> > &to_propagate);
 
   /**
    *  @brief Gets the shape store object
@@ -156,11 +192,6 @@ public:
 private:
   friend class DeepShapeStore;
 
-  /**
-   *  @brief The constructor
-   */
-  DeepLayer (DeepShapeStore *store, unsigned int layout, unsigned int layer);
-
   void check_dss () const;
 
   tl::weak_ptr<DeepShapeStore> mp_store;
@@ -170,9 +201,13 @@ private:
 
 struct DB_PUBLIC RecursiveShapeIteratorCompareForTargetHierarchy
 {
-  bool operator () (const db::RecursiveShapeIterator &a, const db::RecursiveShapeIterator &b) const
+  bool operator () (const std::pair<db::RecursiveShapeIterator, db::ICplxTrans> &a, const std::pair<db::RecursiveShapeIterator, db::ICplxTrans> &b) const
   {
-    return db::compare_iterators_with_respect_to_target_hierarchy (a, b) < 0;
+    int cmp_iter = db::compare_iterators_with_respect_to_target_hierarchy (a.first, b.first);
+    if (cmp_iter != 0) {
+      return cmp_iter < 0;
+    }
+    return a.second < b.second;
   }
 };
 
@@ -198,6 +233,14 @@ public:
   DeepShapeStore ();
 
   /**
+   *  @brief The constructor for a singular DSS
+   *
+   *  This DSS will be initialized with one layout and the given database unit
+   *  and top level cell name.
+   */
+  DeepShapeStore (const std::string &topcell_name, double dbu);
+
+  /**
    *  @brief The destructor
    */
   ~DeepShapeStore ();
@@ -217,6 +260,42 @@ public:
   bool is_singular () const;
 
   /**
+   *  @brief Creates a new layer from a flat region (or the region is made flat)
+   *
+   *  This method is intended for use with singular-created DSS objects (see
+   *  singular constructor).
+   *
+   *  After a flat layer has been created for a region, it can be retrieved
+   *  from the region later with layer_for_flat (region).
+   *
+   *  If for_netlist is true, texts will be skipped except on top level. The
+   *  reasoning is that texts below top level may create name clashes if they
+   *  are used for net names.
+   */
+  DeepLayer create_from_flat (const db::Region &region, bool for_netlist, double max_area_ratio = 0.0, size_t max_vertex_count = 0, const db::ICplxTrans &trans = db::ICplxTrans ());
+
+  /**
+   *  @brief Gets the layer for a given flat region.
+   *
+   *  If a layer has been created for a flat region with create_from_flat, it can be retrieved with this method.
+   *  The first return value is true in this case.
+   */
+  std::pair<bool, DeepLayer> layer_for_flat (const db::Region &region) const;
+
+  /**
+   *  @brief Same as layer_for_flat, but takes a region Id
+   */
+  std::pair<bool, DeepLayer> layer_for_flat (size_t region_id) const;
+
+  /**
+   *  @brief Creates a layout with the given iterator and transformation for the given index
+   *
+   *  This method is intended for classes that need more control over the layouts per index
+   *  (LayoutToNetlist).
+   */
+  void make_layout (unsigned int layout_index, const db::RecursiveShapeIterator &si, const db::ICplxTrans &trans = db::ICplxTrans ());
+
+  /**
    *  @brief Inserts a polygon layer into the deep shape store
    *
    *  This method will create a new layer inside the deep shape store as a
@@ -226,7 +305,56 @@ public:
    *  into parts satisfying the area ratio (bounding box vs. polygon area)
    *  and maximum vertex count constraints.
    */
-  DeepLayer create_polygon_layer (const db::RecursiveShapeIterator &si, double max_area_ratio = 0.0, size_t max_vertex_count = 0);
+  DeepLayer create_polygon_layer (const db::RecursiveShapeIterator &si, double max_area_ratio = 0.0, size_t max_vertex_count = 0, const ICplxTrans &trans = db::ICplxTrans ());
+
+  /**
+   *  @brief Inserts an edge layer into the deep shape store
+   *
+   *  This method will create a new layer inside the deep shape store as a
+   *  working copy of the original layer. This method creates a layer
+   *  for edges.
+   *
+   *  If "as_edges" is true, polygons and boxes will be converted into edges. Otherwise
+   *  only edge objects are taken from the shape iterator. Note that the shape iterator
+   *  must be configured to deliver all shape types if "as_edges" is true.
+   */
+  DeepLayer create_edge_layer (const db::RecursiveShapeIterator &si, bool as_edges, const ICplxTrans &trans = db::ICplxTrans ());
+
+  /**
+   *  @brief Inserts an edge pair layer into the deep shape store
+   *
+   *  This method will create a new layer inside the deep shape store as a
+   *  working copy of the original layer. This method creates a layer
+   *  for edge pairs.
+   */
+  DeepLayer create_edge_pair_layer (const db::RecursiveShapeIterator &si, const ICplxTrans &trans = db::ICplxTrans ());
+
+  /**
+   *  @brief Inserts a polygon layer into the deep shape store using a custom preparation pipeline
+   *
+   *  This method will create a new layer inside the deep shapes store and
+   *  feed it through the given pipeline. The pipeline may perform shape translations and
+   *  finally will feed the target hierarchy.
+   */
+  DeepLayer create_custom_layer (const db::RecursiveShapeIterator &si, HierarchyBuilderShapeReceiver *pipe, const ICplxTrans &trans = db::ICplxTrans ());
+
+  /**
+   *  @brief Creates a deep layer as a copy from an existing one
+   */
+  DeepLayer create_copy (const DeepLayer &source, HierarchyBuilderShapeReceiver *pipe);
+
+  /**
+   *  @brief Gets the empty working layer
+   *
+   *  This method will deliver an empty layer for the given layout index. CAUTION: don't modify this layer as it may
+   *  be reused.
+   */
+  DeepLayer empty_layer (unsigned int layout_index) const;
+
+  /**
+   *  @brief Gets the empty working layer for the singular layout
+   */
+  DeepLayer empty_layer () const;
 
   /**
    *  @brief Inserts the deep layer's shapes into some target layout
@@ -234,13 +362,60 @@ public:
   void insert (const DeepLayer &layer, db::Layout *into_layout, db::cell_index_type into_cell, unsigned int into_layer);
 
   /**
+   *  @brief Inserts the deep layer's edge pairs into some target layout
+   *
+   *  The edge pairs are converted to polygons with the given enlargement.
+   */
+  void insert_as_polygons (const DeepLayer &deep_layer, db::Layout *into_layout, db::cell_index_type into_cell, unsigned int into_layer, db::Coord enl);
+
+  /**
    *  @brief Gets the cell mapping suitable to returning a layout from the deep shape store into the original layout hierarchy
    *
    *  If necessary, this method will modify the original layout and add new cells.
    *  "layout_index" is the layout to return to it's original. "into_layout" is the original layout, "into_cell"
    *  the original cell.
+   *
+   *  "excluded_cells" - if not 0 - will exclude the given cells
+   *
+   *  "included_cells" - if not 0 - will only include the given cells in the cell mapping
    */
-  const db::CellMapping &cell_mapping_to_original (size_t layout_index, db::Layout *into_layout, db::cell_index_type into_cell);
+  const db::CellMapping &cell_mapping_to_original (unsigned int layout_index, db::Layout *into_layout, db::cell_index_type into_cell, const std::set<db::cell_index_type> *excluded_cells = 0, const std::set<db::cell_index_type> *included_cells = 0);
+
+  /**
+   *  @brief Create cell variants from the given variant collector
+   *
+   *  To use this method, first create a variant collector (db::cell_variant_collector) with the required
+   *  reducer and collect the variants. Then call this method on the desired layout index to create the variants.
+   */
+  template <class VarCollector>
+  void separate_variants (unsigned int layout_index, VarCollector &coll)
+  {
+    tl_assert (is_valid_layout_index (layout_index));
+
+    std::map<db::cell_index_type, std::map<db::ICplxTrans, db::cell_index_type> > var_map;
+    coll.separate_variants (layout (layout_index), initial_cell (layout_index), &var_map);
+    if (var_map.empty ()) {
+      //  nothing to do.
+      return;
+    }
+
+    issue_variants (layout_index, var_map);
+  }
+
+  /**
+   *  @brief Commits shapes for variants to the existing cell hierarchy
+   *
+   *  To use this method, first create a variant collector (db::cell_variant_collector) with the required
+   *  reducer and collect the variants. Then call this method on the desired layout index to commit the shapes for the
+   *  respective variants.
+   */
+  template <class VarCollector>
+  void commit_shapes (unsigned int layout_index, VarCollector &coll, unsigned int layer, std::map<db::cell_index_type, std::map<db::ICplxTrans, db::Shapes> > &to_commit)
+  {
+    tl_assert (is_valid_layout_index (layout_index));
+
+    coll.commit_shapes (layout (layout_index), initial_cell (layout_index), layer, to_commit);
+  }
 
   /**
    *  @brief For testing
@@ -420,18 +595,25 @@ private:
 
   struct LayoutHolder;
 
+  void invalidate_hier ();
   void add_ref (unsigned int layout, unsigned int layer);
   void remove_ref (unsigned int layout, unsigned int layer);
 
+  unsigned int layout_for_iter (const db::RecursiveShapeIterator &si, const db::ICplxTrans &trans);
+
   void require_singular () const;
 
-  typedef std::map<db::RecursiveShapeIterator, unsigned int, RecursiveShapeIteratorCompareForTargetHierarchy> layout_map_type;
+  void issue_variants (unsigned int layout, const std::map<db::cell_index_type, std::map<db::ICplxTrans, db::cell_index_type> > &var_map);
+
+  typedef std::map<std::pair<db::RecursiveShapeIterator, db::ICplxTrans>, unsigned int, RecursiveShapeIteratorCompareForTargetHierarchy> layout_map_type;
 
   //  no copying
   DeepShapeStore (const DeepShapeStore &);
   DeepShapeStore &operator= (const DeepShapeStore &);
 
   std::vector<LayoutHolder *> m_layouts;
+  std::map<size_t, std::pair<unsigned int, unsigned int> > m_layers_for_flat;
+  std::map<std::pair<unsigned int, unsigned int>, size_t> m_flat_region_id;
   layout_map_type m_layout_map;
   int m_threads;
   double m_max_area_ratio;
@@ -468,6 +650,20 @@ private:
 
   std::map<DeliveryMappingCacheKey, db::CellMapping> m_delivery_mapping_cache;
 };
+
+template <class VarCollector>
+void DeepLayer::separate_variants (VarCollector &collector)
+{
+  check_dss ();
+  mp_store->separate_variants (m_layout, collector);
+}
+
+template <class VarCollector>
+void DeepLayer::commit_shapes (VarCollector &collector, std::map<db::cell_index_type, std::map<db::ICplxTrans, db::Shapes> > &to_commit)
+{
+  check_dss ();
+  mp_store->commit_shapes (m_layout, collector, layer (), to_commit);
+}
 
 }
 

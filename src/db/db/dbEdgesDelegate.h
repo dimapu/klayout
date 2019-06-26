@@ -29,10 +29,131 @@
 #include "dbEdge.h"
 #include "dbEdgePairs.h"
 #include "dbEdgePairRelations.h"
+#include "tlUniqueId.h"
 
 #include <list>
 
 namespace db {
+
+/**
+ *  @brief A base class for edge filters
+ */
+class DB_PUBLIC EdgeFilterBase
+{
+public:
+  /**
+   *  @brief Constructor
+   */
+  EdgeFilterBase () { }
+
+  virtual ~EdgeFilterBase () { }
+
+  /**
+   *  @brief Filters the edge
+   *  If this method returns true, the polygon is kept. Otherwise it's discarded.
+   */
+  virtual bool selected (const db::Edge &edge) const = 0;
+
+  /**
+   *  @brief Returns the transformation reducer for building cell variants
+   *  This method may return 0. In this case, not cell variants are built.
+   */
+  virtual const TransformationReducer *vars () const = 0;
+
+  /**
+   *  @brief Returns true, if the filter wants raw (not merged) input
+   */
+  virtual bool requires_raw_input () const = 0;
+
+  /**
+   *  @brief Returns true, if the filter wants to build variants
+   *  If not true, the filter accepts shape propagation as variant resolution.
+   */
+  virtual bool wants_variants () const = 0;
+};
+
+/**
+ *  @brief A template base class for edge processors
+ *
+ *  A polygon processor can turn a edge into something else.
+ */
+template <class Result>
+class DB_PUBLIC edge_processor
+{
+public:
+  /**
+   *  @brief Constructor
+   */
+  edge_processor () { }
+
+  /**
+   *  @brief Destructor
+   */
+  virtual ~edge_processor () { }
+
+  /**
+   *  @brief Performs the actual processing
+   *  This method will take the input edge from "edge" and puts the results into "res".
+   *  "res" can be empty - in this case, the edge will be skipped.
+   */
+  virtual void process (const db::Edge &edge, std::vector<Result> &res) const = 0;
+
+  /**
+   *  @brief Returns the transformation reducer for building cell variants
+   *  This method may return 0. In this case, not cell variants are built.
+   */
+  virtual const TransformationReducer *vars () const = 0;
+
+  /**
+   *  @brief Returns true, if the result of this operation can be regarded "merged" always.
+   */
+  virtual bool result_is_merged () const = 0;
+
+  /**
+   *  @brief Returns true, if the result of this operation must not be merged.
+   *  This feature can be used, if the result represents "degenerated" objects such
+   *  as point-like edges. These must not be merged. Otherwise they disappear.
+   */
+  virtual bool result_must_not_be_merged () const = 0;
+
+  /**
+   *  @brief Returns true, if the processor wants raw (not merged) input
+   */
+  virtual bool requires_raw_input () const = 0;
+
+  /**
+   *  @brief Returns true, if the processor wants to build variants
+   *  If not true, the processor accepts shape propagation as variant resolution.
+   */
+  virtual bool wants_variants () const = 0;
+};
+
+/**
+ *  @brief A edge processor base class
+ */
+class DB_PUBLIC EdgeProcessorBase
+  : public edge_processor<db::Edge>
+{
+  //  .. nothing yet ..
+};
+
+/**
+ *  @brief An edge-to-polygon processor base class
+ */
+class DB_PUBLIC EdgeToPolygonProcessorBase
+  : public edge_processor<db::Polygon>
+{
+  //  .. nothing yet ..
+};
+
+/**
+ *  @brief An edge-to-edge pair processor base class
+ */
+class DB_PUBLIC EdgeToEdgePairProcessorBase
+  : public edge_processor<db::EdgePair>
+{
+  //  .. nothing yet ..
+};
 
 /**
  *  @brief A common definition for the boolean operations available on edges
@@ -41,6 +162,7 @@ enum EdgeBoolOp { EdgeOr, EdgeNot, EdgeXor, EdgeAnd };
 
 class RecursiveShapeIterator;
 class EdgeFilterBase;
+class EdgePairsDelegate;
 class RegionDelegate;
 
 /**
@@ -64,6 +186,7 @@ public:
  *  @brief The delegate for the actual edge set implementation
  */
 class DB_PUBLIC EdgesDelegate
+  : public tl::UniqueId
 {
 public:
   typedef db::Coord coord_type;
@@ -82,6 +205,12 @@ public:
   EdgesDelegate &operator= (const EdgesDelegate &other);
 
   virtual EdgesDelegate *clone () const = 0;
+
+  void set_base_verbosity (int vb);
+  int base_verbosity () const
+  {
+    return m_base_verbosity;
+  }
 
   void enable_progress (const std::string &progress_desc);
   void disable_progress ();
@@ -113,15 +242,19 @@ public:
   virtual distance_type length (const db::Box &box) const = 0;
   virtual Box bbox () const = 0;
 
-  virtual EdgePairs width_check (db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
-  virtual EdgePairs space_check (db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
-  virtual EdgePairs enclosing_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
-  virtual EdgePairs overlap_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
-  virtual EdgePairs separation_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
-  virtual EdgePairs inside_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
+  virtual EdgePairsDelegate *width_check (db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
+  virtual EdgePairsDelegate *space_check (db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
+  virtual EdgePairsDelegate *enclosing_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
+  virtual EdgePairsDelegate *overlap_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
+  virtual EdgePairsDelegate *separation_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
+  virtual EdgePairsDelegate *inside_check (const Edges &other, db::Coord d, bool whole_edges, metrics_type metrics, double ignore_angle, distance_type min_projection, distance_type max_projection) const = 0;
 
   virtual EdgesDelegate *filter_in_place (const EdgeFilterBase &filter) = 0;
   virtual EdgesDelegate *filtered (const EdgeFilterBase &filter) const = 0;
+  virtual EdgesDelegate *process_in_place (const EdgeProcessorBase &filter) = 0;
+  virtual EdgesDelegate *processed (const EdgeProcessorBase &filter) const = 0;
+  virtual EdgePairsDelegate *processed_to_edge_pairs (const EdgeToEdgePairProcessorBase &filter) const = 0;
+  virtual RegionDelegate *processed_to_polygons (const EdgeToPolygonProcessorBase &filter) const = 0;
 
   virtual EdgesDelegate *merged_in_place () = 0;
   virtual EdgesDelegate *merged () const = 0;
@@ -136,9 +269,6 @@ public:
   virtual EdgesDelegate *add (const Edges &other) const = 0;
 
   virtual RegionDelegate *extended (coord_type ext_b, coord_type ext_e, coord_type ext_o, coord_type ext_i, bool join) const = 0;
-  virtual EdgesDelegate *start_segments (length_type length, double fraction) const = 0;
-  virtual EdgesDelegate *end_segments (length_type length, double fraction) const = 0;
-  virtual EdgesDelegate *centers (length_type length, double fraction) const = 0;
 
   virtual EdgesDelegate *inside_part (const Region &other) const = 0;
   virtual EdgesDelegate *outside_part (const Region &other) const = 0;
@@ -158,6 +288,8 @@ public:
   virtual bool equals (const Edges &other) const = 0;
   virtual bool less (const Edges &other) const = 0;
 
+  virtual void insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const = 0;
+
 protected:
   const std::string &progress_desc () const
   {
@@ -176,6 +308,7 @@ private:
   bool m_strict_handling;
   bool m_report_progress;
   std::string m_progress_desc;
+  int m_base_verbosity;
 };
 
 }

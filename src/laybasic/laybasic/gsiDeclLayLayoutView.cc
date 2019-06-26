@@ -28,6 +28,8 @@
 #include "layDitherPattern.h"
 #include "layLineStyles.h"
 #include "dbSaveLayoutOptions.h"
+#include "dbLayoutToNetlist.h"
+#include "dbLayoutVsSchematic.h"
 #include "tlStream.h"
 
 #if defined(HAVE_QTBINDINGS)
@@ -196,6 +198,31 @@ static unsigned int create_rdb (lay::LayoutView *view, const std::string &name)
   return view->add_rdb (db);
 }
 
+static unsigned int create_l2ndb (lay::LayoutView *view, const std::string &name)
+{
+  db::LayoutToNetlist *db = new db::LayoutToNetlist ();
+  db->set_name (name);
+  return view->add_l2ndb (db);
+}
+
+static unsigned int create_lvsdb (lay::LayoutView *view, const std::string &name)
+{
+  db::LayoutVsSchematic *db = new db::LayoutVsSchematic ();
+  db->set_name (name);
+  return view->add_l2ndb (db);
+}
+
+static db::LayoutVsSchematic *get_lvsdb (lay::LayoutView *view, unsigned int index)
+{
+  db::LayoutToNetlist *db = view->get_l2ndb (index);
+  return dynamic_cast<db::LayoutVsSchematic *> (db);
+}
+
+static void add_lvsdb (lay::LayoutView *view, db::LayoutVsSchematic *lvsdb)
+{
+  view->add_l2ndb (lvsdb);
+}
+
 //  this binding returns a const pointer which is not converted into a copy by RBA
 static lay::LayerPropertiesNodeRef insert_layer1 (lay::LayoutView *view, const lay::LayerPropertiesConstIterator &iter, const lay::LayerProperties &props)
 {
@@ -339,7 +366,7 @@ namespace {
 
     reference operator* () const
     {
-      return lay::LayerPropertiesNodeRef (&const_cast<LayerPropertiesConstIteratorWrapper *> (this)->m_iter);
+      return lay::LayerPropertiesNodeRef (m_iter);
     }
 
     bool at_end () const
@@ -437,7 +464,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "@param add_default If true, default layers will be added for each other layer in the layout\n"
     "\n"
     "Load the layer properties from the file given in \"fn\".\n"
-    "This version allows to specify whether defaults should be used for all other layers by "
+    "This version allows one to specify whether defaults should be used for all other layers by "
     "setting \"add_default\" to true.\n"
     "\n"
     "This variant has been added on version 0.21."
@@ -450,7 +477,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "@param add_default If true, default layers will be added for each other layer in the layout\n"
     "\n"
     "Load the layer properties from the file given in \"fn\".\n"
-    "This version allows to specify whether defaults should be used for all other layers by "
+    "This version allows one to specify whether defaults should be used for all other layers by "
     "setting \"add_default\" to true. It can be used to load the layer properties for a specific "
     "cellview by setting \"cv_index\" to the index for which the layer properties file should be applied. "
     "All present definitions for this layout will be removed before the properties file is loaded. \"cv_index\" can "
@@ -465,7 +492,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "\n"
     "@param level The minimum level above which to display something\n"
     "\n"
-    "This methods allows to set the minimum hierarchy level above which to display geometries."
+    "This methods allows setting the minimum hierarchy level above which to display geometries."
     "This method may cause a redraw if required."
   ) +
   gsi::method ("min_hier_levels", &lay::LayoutView::get_min_hier_levels,
@@ -478,7 +505,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "\n"
     "@param level The maximum level below which to display something\n"
     "\n"
-    "This methods allows to set the maximum hierarchy below which to display geometries."
+    "This methods allows setting the maximum hierarchy below which to display geometries."
     "This method may cause a redraw if required."
   ) +
   gsi::method ("max_hier_levels", &lay::LayoutView::get_max_hier_levels,
@@ -528,7 +555,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "@brief Create a new, empty layout and associate it with the given technology\n"
     "\n"
     "The add_cellview parameter controls whether to create a new cellview (true)\n"
-    "or clear all cellviews before (false). This variant also allows to control whether the layer properties are\n"
+    "or clear all cellviews before (false). This variant also allows one to control whether the layer properties are\n"
     "initialized (init_layers = true) or not (init_layers = false).\n"
     "\n"
     "@return The index of the cellview created.\n"
@@ -572,7 +599,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "The technology to use for that layout can be specified as well with the 'tech' parameter. Depending "
     "on the definition of the technology, layer properties may be loaded for example.\n"
     "The technology string can be empty for the default technology.\n"
-    "This variant also allows to control whether the layer properties are\n"
+    "This variant also allows one to control whether the layer properties are\n"
     "initialized (init_layers = true) or not (init_layers = false).\n"
     "\n"
     "Note: once a layout is passed to the view with show_layout, it is owned by the view and must not be "
@@ -676,7 +703,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "current path is returned for the cellview given by cv_index.\n"
     "The cell path is a list of cell indices from the top cell to the current cell.\n"
     "\n"
-    "@param cv_index The cellview index for which to get the current path from (usally this will be the active cellview index)"
+    "@param cv_index The cellview index for which to get the current path from (usually this will be the active cellview index)"
     "\n"
     "This method is was deprecated in version 0.25 since from then, the \\CellView object can be used to obtain an manipulate the selected cell."
   ) +
@@ -684,10 +711,10 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "@brief Sets the path to the current cell\n"
     "\n"
     "The current cell is the one highlighted in the browser with the focus rectangle. The\n"
-    "cell given by the path is hightlighted and scrolled into view.\n"
+    "cell given by the path is highlighted and scrolled into view.\n"
     "To select the cell to be drawn, use the \\select_cell or \\select_cell_path method.\n"
     "\n"
-    "@param cv_index The cellview index for which to set the current path for (usally this will be the active cellview index)\n"
+    "@param cv_index The cellview index for which to set the current path for (usually this will be the active cellview index)\n"
     "@param path The path to the current cell\n"
     "\n"
     "This method is was deprecated in version 0.25 since from then, the \\CellView object can be used to obtain an manipulate the selected cell."
@@ -1020,7 +1047,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "\n"
     "This method inserts the new properties node before the position given by \"iter\" and returns "
     "a const reference to the element created. The iterator that specified the position will remain valid "
-    "after the node was inserted and will point to the newly created node. It can be used to add futher nodes. "
+    "after the node was inserted and will point to the newly created node. It can be used to add further nodes. "
     "To add children to the node inserted, use iter.last_child as insertion point for the next insert operations.\n"
     "\n"
     "Since version 0.22, this method accepts LayerProperties and LayerPropertiesNode objects. A LayerPropertiesNode "
@@ -1034,7 +1061,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "This version addresses a specific list in a multi-tab layer properties arrangement with the \"index\" parameter. "
     "This method inserts the new properties node before the position given by \"iter\" and returns "
     "a const reference to the element created. The iterator that specified the position will remain valid "
-    "after the node was inserted and will point to the newly created node. It can be used to add futher nodes. "
+    "after the node was inserted and will point to the newly created node. It can be used to add further nodes. "
     "\n"
     "This method has been introduced in version 0.21.\n"
     "Since version 0.22, this method accepts LayerProperties and LayerPropertiesNode objects. A LayerPropertiesNode "
@@ -1104,7 +1131,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "This iterator delivers the layers of this view, either in a recursive or non-recursive\n"
     "fashion, depending which iterator increment methods are used.\n"
     "The iterator delivered by \\end_layers is the past-the-end iterator. It can be compared\n"
-    "agains a current iterator to check, if there are no further elements.\n"
+    "against a current iterator to check, if there are no further elements.\n"
     "\n"
     "Starting from version 0.25, an alternative solution is provided with 'each_layer' which is based on the "
     "\\LayerPropertiesNodeRef class."
@@ -1119,7 +1146,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "This iterator delivers the layers of this view, either in a recursive or non-recursive\n"
     "fashion, depending which iterator increment methods are used.\n"
     "The iterator delivered by \\end_layers is the past-the-end iterator. It can be compared\n"
-    "agains a current iterator to check, if there are no further elements.\n"
+    "against a current iterator to check, if there are no further elements.\n"
     "This version addresses a specific list in a multi-tab layer properties arrangement with the \"index\" parameter. "
     "This method has been introduced in version 0.21.\n"
   ) +
@@ -1414,6 +1441,16 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "@brief Gets the report database with the given index\n"
     "@return The \\ReportDatabase object or nil if the index is not valid"
   ) +
+  gsi::method ("add_rdb", &lay::LayoutView::add_rdb, gsi::arg ("db"),
+    "@brief Adds the given database to the view\n"
+    "\n"
+    "This method will add an existing database to the view. It will then appear in the marker database browser.\n"
+    "A similar method is \\create_rdb which will create a new database within the view.\n"
+    "\n"
+    "@return The index of the database within the view (see \\rdb)\n"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
   gsi::method_ext ("create_rdb", &create_rdb, gsi::arg ("name"),
     "@brief Creates a new report database and returns the index of the new database\n"
     "@param name The name of the new report database\n"
@@ -1426,6 +1463,91 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "@brief Shows a report database in the marker browser on a certain layout\n"
     "The marker browser is opened showing the report database with the index given by \"rdb_index\".\n"
     "It will be attached (i.e. navigate to) the layout with the given cellview index in \"cv_index\".\n"
+  ) +
+  gsi::event ("on_l2ndb_list_changed", &lay::LayoutView::l2ndb_list_changed_event,
+    "@brief An event that is triggered the list of netlist databases is changed\n"
+    "\n"
+    "If a netlist database is added or removed, this event is triggered.\n"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method ("num_l2ndbs", &lay::LayoutView::num_l2ndbs,
+    "@brief Gets the number of netlist databases loaded into this view\n"
+    "@return The number of \\LayoutToNetlist objects present in this view\n"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method ("remove_l2ndb", &lay::LayoutView::remove_l2ndb, gsi::arg ("index"),
+    "@brief Removes a netlist database with the given index\n"
+    "@param The index of the netlist database to remove from this view"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method ("l2ndb", (db::LayoutToNetlist *(lay::LayoutView::*) (int index)) &lay::LayoutView::get_l2ndb, gsi::arg ("index"),
+    "@brief Gets the netlist database with the given index\n"
+    "@return The \\LayoutToNetlist object or nil if the index is not valid"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method ("add_l2ndb", &lay::LayoutView::add_l2ndb, gsi::arg ("db"),
+    "@brief Adds the given database to the view\n"
+    "\n"
+    "This method will add an existing database to the view. It will then appear in the netlist database browser.\n"
+    "A similar method is \\create_l2ndb which will create a new database within the view.\n"
+    "\n"
+    "@return The index of the database within the view (see \\l2ndb)\n"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method_ext ("create_l2ndb", &create_l2ndb, gsi::arg ("name"),
+    "@brief Creates a new netlist database and returns the index of the new database\n"
+    "@param name The name of the new netlist database\n"
+    "@return The index of the new database\n"
+    "This method returns an index of the new netlist database. Use \\l2ndb to get the actual object. "
+    "If a netlist database with the given name already exists, a unique name will be created.\n"
+    "The name will be replaced by the file name when a file is loaded into the netlist database.\n"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method ("show_l2ndb", &lay::LayoutView::open_l2ndb_browser, gsi::arg ("l2ndb_index"), gsi::arg ("cv_index"),
+    "@brief Shows a netlist database in the marker browser on a certain layout\n"
+    "The netlist browser is opened showing the netlist database with the index given by \"l2ndb_index\".\n"
+    "It will be attached (i.e. navigate to) the layout with the given cellview index in \"cv_index\".\n"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method_ext ("lvsdb", &get_lvsdb, gsi::arg ("index"),
+    "@brief Gets the netlist database with the given index\n"
+    "@return The \\LayoutVsSchematic object or nil if the index is not valid"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method_ext ("add_lvsdb", &add_lvsdb, gsi::arg ("db"),
+    "@brief Adds the given database to the view\n"
+    "\n"
+    "This method will add an existing database to the view. It will then appear in the netlist database browser.\n"
+    "A similar method is \\create_lvsdb which will create a new database within the view.\n"
+    "\n"
+    "@return The index of the database within the view (see \\lvsdb)\n"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method_ext ("create_lvsdb", &create_lvsdb, gsi::arg ("name"),
+    "@brief Creates a new netlist database and returns the index of the new database\n"
+    "@param name The name of the new netlist database\n"
+    "@return The index of the new database\n"
+    "This method returns an index of the new netlist database. Use \\lvsdb to get the actual object. "
+    "If a netlist database with the given name already exists, a unique name will be created.\n"
+    "The name will be replaced by the file name when a file is loaded into the netlist database.\n"
+    "\n"
+    "This method has been added in version 0.26."
+  ) +
+  gsi::method ("show_lvsdb", &lay::LayoutView::open_l2ndb_browser, gsi::arg ("lvsdb_index"), gsi::arg ("cv_index"),
+    "@brief Shows a netlist database in the marker browser on a certain layout\n"
+    "The netlist browser is opened showing the netlist database with the index given by \"lvsdb_index\".\n"
+    "It will be attached (i.e. navigate to) the layout with the given cellview index in \"cv_index\".\n"
+    "\n"
+    "This method has been added in version 0.26."
   ) +
   //  HINT: the cast is important to direct GSI to the LayoutView method rather than the
   //  Plugin method (in which case we get a segmentation violation ..)
@@ -1497,7 +1619,7 @@ Class<lay::LayoutView> decl_LayoutView (QT_EXTERNAL_BASE (QWidget) "lay", "Layou
     "A transaction brackets a sequence of database modifications that appear as a single "
     "undo action. Only modifications that are wrapped inside a transaction..commit call pair "
     "can be undone.\n"
-    "Each transaction must be terminated with a \\commit method call, even if some error occured. "
+    "Each transaction must be terminated with a \\commit method call, even if some error occurred. "
     "It is advisable therefore to catch errors and issue a commit call in this case.\n"
     "\n"
     "This method was introduced in version 0.16."

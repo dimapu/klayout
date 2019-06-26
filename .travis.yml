@@ -1,3 +1,9 @@
+branches:
+  only:
+    - /v\d+\.\d+(\.\d+)?(\S*)?$/  # tag format: *v0.25(.8)(dev14)
+    - staging
+    - master
+
 matrix:
   include:
     # python manylinux packages
@@ -195,7 +201,9 @@ matrix:
     - name: "cp27-cp27m-macosx_10_13_x86_64.whl"
       os: osx
       osx_image: xcode9.4  # macOS 10.13
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -210,7 +218,9 @@ matrix:
     - name: "cp27-cp27m-macosx_10_12_x86_64.whl"
       os: osx
       osx_image: xcode8.3  # macOS 10.12
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -225,11 +235,14 @@ matrix:
     - name: "cp27-cp27m-macosx_10_11_x86_64.whl"
       os: osx
       osx_image: xcode8  # macOS 10.11
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
             - ccache
+          update: true
       env:
         - MATRIX_EVAL=""
         - ARCHFLAGS="-std=c++11"
@@ -242,7 +255,9 @@ matrix:
     - name: "cp37-cp37m-macosx_10_13_x86_64.whl"
       os: osx
       osx_image: xcode9.4  # macOS 10.13
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -259,13 +274,15 @@ matrix:
     - name: "cp36-cp36m-macosx_10_13_x86_64.whl"
       os: osx
       osx_image: xcode9.4  # macOS 10.13
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
             - ccache
       env:
-        - MATRIX_EVAL="brew update; brew install sashkab/python/python36; brew link --force --overwrite python36; shopt -s expand_aliases; alias python='/usr/local/opt/python36/bin/python3.6'; alias pip='/usr/local/opt/python36/bin/pip3.6';"
+        - MATRIX_EVAL="brew update; brew tap sashkab/python; brew install sashkab/python/python36; brew link --force --overwrite python36; shopt -s expand_aliases; alias python='/usr/local/opt/python36/bin/python3.6'; alias pip='/usr/local/opt/python36/bin/pip3.6';"
         - ARCHFLAGS="-std=c++11"
         - PIP_UPDATE="1"
         - PYTHON_BUILD=true
@@ -274,28 +291,15 @@ matrix:
     - name: "cp35-cp35m-macosx_10_13_x86_64.whl"
       os: osx
       osx_image: xcode9.4  # macOS 10.13
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
             - ccache
       env:
-        - MATRIX_EVAL="brew update; brew install sashkab/python/python35; brew link --force --overwrite python35; shopt -s expand_aliases; alias python='/usr/local/opt/python35/bin/python3.5'; alias pip='/usr/local/opt/python35/bin/pip3.5';"
-        - ARCHFLAGS="-std=c++11"
-        - PIP_UPDATE="1"
-        - PYTHON_BUILD=true
-
-    # - name: "klayout python3.4.9 osx10.13"
-    - name: "cp34-cp34m-macosx_10_13_x86_64.whl"
-      os: osx
-      osx_image: xcode9.4  # macOS 10.13
-      cache: ccache
-      addons:
-        homebrew:
-          packages:
-            - ccache
-      env:
-        - MATRIX_EVAL="brew update; brew install sashkab/python/python34; brew link --force --overwrite python34; shopt -s expand_aliases; alias python='/usr/local/opt/python34/bin/python3.4'; alias pip='/usr/local/opt/python34/bin/pip3.4';"
+        - MATRIX_EVAL="brew update; brew tap sashkab/python; brew install sashkab/python/python35; brew link --force --overwrite python35; shopt -s expand_aliases; alias python='/usr/local/opt/python35/bin/python3.5'; alias pip='/usr/local/opt/python35/bin/pip3.5';"
         - ARCHFLAGS="-std=c++11"
         - PIP_UPDATE="1"
         - PYTHON_BUILD=true
@@ -304,7 +308,9 @@ matrix:
     - name: "cp37-cp37m-macosx_10_12_x86_64.whl"
       os: osx
       osx_image: xcode8.3  # macOS 10.12
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -321,114 +327,28 @@ matrix:
     - name: "cp37-cp37m-macosx_10_11_x86_64.whl"
       os: osx
       osx_image: xcode8  # macOS 10.11
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
             - ccache
+          update: true
       env:
         - MATRIX_EVAL="brew update; brew config; brew upgrade python; brew postinstall python; ls -l /usr/local/opt/python/libexec/bin/; shopt -s expand_aliases; alias python='/usr/local/opt/python/libexec/bin/python'; alias pip='/usr/local/opt/python/libexec/bin/pip';"
         - ARCHFLAGS="-std=c++11"
         - PIP_UPDATE="1"
         - PYTHON_BUILD=true
-    
-    # - name: "klayout python3.7 package"
-    #   os: linux
-    #   dist: trusty # Ubuntu 14.04
-    #   sudo: false
-    #   language: python
-    #   python: '3.7-dev'
-    #   env:
-    #     - MATRIX_EVAL=""
-    #     - PIP_UPDATE="1"
-    #     - PYTHON_BUILD=true
-    #     - CC=clang
-    #     - CXX=clang++
-
-    # - name: "klayout python3.6 package"
-    #   os: linux
-    #   dist: trusty # Ubuntu 14.04
-    #   sudo: false
-    #   language: python
-    #   python: '3.6'
-    #   env:
-    #     - MATRIX_EVAL=""
-    #     - PIP_UPDATE="1"
-    #     - PYTHON_BUILD=true
-    #     - CC=clang
-    #     - CXX=clang++
-    
-    # - name: "klayout python2.7 package"
-    #   os: linux
-    #   dist: trusty # Ubuntu 14.04
-    #   sudo: false
-    #   language: python
-    #   python: '2.7'
-    #   env:
-    #     - MATRIX_EVAL=""
-    #     - PIP_UPDATE="1"
-    #     - PYTHON_BUILD=true
-    #     - CC=clang
-    #     - CXX=clang++
-    
-    # - name: "klayout python2.6 package"
-    #   os: linux
-    #   dist: trusty # Ubuntu 14.04
-    #   sudo: false
-    #   language: python
-    #   python: '2.6'
-    #   env:
-    #     - MATRIX_EVAL=""
-    #     - PIP_UPDATE="0"  # setuptools installed from last pip has syntax error on py 2.6
-    #     - PYTHON_BUILD=true
-    #     - CC=clang
-    #     - CXX=clang++
-    
-    # - name: "klayout python3.3 package"
-    #   os: linux
-    #   dist: trusty # Ubuntu 14.04
-    #   sudo: false
-    #   language: python
-    #   python: '3.3'
-    #   env:
-    #     - MATRIX_EVAL=""
-    #     - PIP_UPDATE="1"
-    #     - PYTHON_BUILD=true
-    #     - CC=clang
-    #     - CXX=clang++
-    
-    # - name: "klayout python3.4 package"
-    #   os: linux
-    #   dist: trusty # Ubuntu 14.04
-    #   sudo: false
-    #   language: python
-    #   python: '3.4'
-    #   env:
-    #     - MATRIX_EVAL=""
-    #     - PIP_UPDATE="1"
-    #     - PYTHON_BUILD=true
-    #     - CC=clang
-    #     - CXX=clang++
-    
-    # - name: "klayout python3.5 package"
-    #   os: linux
-    #   dist: trusty # Ubuntu 14.04
-    #   sudo: false
-    #   language: python
-    #   python: '3.5'
-    #   env:
-    #     - MATRIX_EVAL=""
-    #     - PIP_UPDATE="1"
-    #     - PYTHON_BUILD=true
-    #     - CC=clang
-    #     - CXX=clang++
 
     # KLayout builds for mac
     # Python 3
     - name: "KLayout macOS 10.13 with py3.7"
       os: osx
       osx_image: xcode9.4 # macOS 10.13
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -445,7 +365,9 @@ matrix:
     - name: "KLayout macOS 10.12 with py3.7"
       os: osx
       osx_image: xcode8.3 # macOS 10.12
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -462,11 +384,14 @@ matrix:
     - name: "KLayout macOS 10.11 with py3.7"
       os: osx
       osx_image: xcode8 # macOS 10.11
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
             - python3
+            - ccache
           update: true
       env:
         - MATRIX_EVAL="brew update; brew config; brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/56c500b569c724b049be7ab9e12d9693f85522f9/Formula/qt.rb"  # Qt 5.11.2
@@ -478,7 +403,9 @@ matrix:
     - name: "KLayout macOS 10.13 with py2.7"
       os: osx
       osx_image: xcode9.4 # macOS 10.13
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -494,7 +421,9 @@ matrix:
     - name: "KLayout macOS 10.12 with py2.7"
       os: osx
       osx_image: xcode8.3 # macOS 10.12
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -510,7 +439,9 @@ matrix:
     - name: "KLayout macOS 10.11 with py2.7"
       os: osx
       osx_image: xcode8 # macOS 10.11
-      cache: ccache
+      cache:
+        directories:
+        - ccache
       addons:
         homebrew:
           packages:
@@ -525,6 +456,12 @@ matrix:
 before_install:
   - env
   - gem install dropbox-deployment
+  - if [ "${TRAVIS_OS_NAME}" == "osx" ]; then
+        export PATH="/usr/local/opt/ccache/libexec:$PATH";
+        mkdir -p ccache;
+        export CCACHE_DIR="`pwd`/ccache";
+        ccache -s;
+    fi
   - eval "${MATRIX_EVAL}"
   - if [ "${PIP_UPDATE}" == "1" ]; then
         pip --version;
@@ -533,9 +470,6 @@ before_install:
         pip install --upgrade setuptools wheel || sudo pip install --upgrade setuptools wheel;
     fi
   - python -c "import distutils.sysconfig as sysconfig; print(sysconfig.__file__)"
-  - if [ "${TRAVIS_OS_NAME}" == "osx" ]; then
-        export PATH="/usr/local/opt/ccache/libexec:$PATH";
-    fi
 
 install:
   - if [ "$DOCKER_BUILD" = true ]; then
@@ -555,6 +489,7 @@ script:
             python testdata/pymod/import_db.py;
             python testdata/pymod/import_rdb.py;
             python testdata/pymod/import_tl.py;
+            python testdata/pymod/import_lib.py;
             python testdata/pymod/pya_tests.py;
         fi
     fi 
@@ -565,6 +500,7 @@ script:
         python testdata/pymod/import_db.py;
         python testdata/pymod/import_rdb.py;
         python testdata/pymod/import_tl.py;
+        python testdata/pymod/import_lib.py;
         python testdata/pymod/pya_tests.py;
         klayout_version=$(python -c 'import setup; print(setup.Config().version())');
         mkdir -p deploy/dist-pymod/$klayout_version;
@@ -577,5 +513,19 @@ script:
         ./travis-build.sh;
     fi
 
+before_cache:
+  - if [ "${TRAVIS_OS_NAME}" == "osx" ]; then
+        ccache -s;
+    fi
+
 after_success:
+  # upload to dropbox
+  # need DROPBOX_OAUTH_BEARER environment variable
   - dropbox-deployment
+
+  # uploading to pypi using twine
+  # need TWINE_USERNAME, TWINE_PASSWORD and TWINE_REPOSITORY_URL env variable
+  - if [ ! -z "$TRAVIS_TAG" ] &&  [ ! -z "$TWINE_PASSWORD" ] && [[ "$PYTHON_BUILD" = true || "$DOCKER_BUILD" = true ]]; then
+      pip install -U twine || sudo pip install -U twine;
+      twine upload --skip-existing deploy/dist-pymod/$klayout_version/*;
+    fi

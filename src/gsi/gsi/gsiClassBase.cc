@@ -390,6 +390,30 @@ sm_assign (const char *name, const gsi::ClassBase *cls)
   return sm;
 }
 
+static const std::set<std::pair<std::string, bool> > &name_map_for_class (const gsi::ClassBase *cls, std::map<const gsi::ClassBase *, std::set<std::pair<std::string, bool> > > &cache)
+{
+  if (! cls) {
+    static std::set<std::pair<std::string, bool> > empty;
+    return empty;
+  }
+
+  std::map<const gsi::ClassBase *, std::set<std::pair<std::string, bool> > >::iterator cc = cache.find (cls);
+  if (cc != cache.end ()) {
+    return cc->second;
+  }
+
+  cc = cache.insert (std::make_pair ((const gsi::ClassBase *) 0, std::set<std::pair<std::string, bool> > ())).first;
+  cc->second = name_map_for_class (cls->base (), cache);
+
+  for (gsi::ClassBase::method_iterator m = cls->begin_methods (); m != cls->end_methods (); ++m) {
+    for (gsi::MethodBase::synonym_iterator syn = (*m)->begin_synonyms (); syn != (*m)->end_synonyms (); ++syn) {
+      cc->second.insert (std::make_pair (syn->name, (*m)->is_static ()));
+    }
+  }
+
+  return cc->second;
+}
+
 void
 ClassBase::merge_declarations ()
 {
@@ -433,6 +457,8 @@ ClassBase::merge_declarations ()
     }
   }
 
+  std::map<const gsi::ClassBase *, std::set<std::pair<std::string, bool> > > name_maps;
+
   //  Add to the classes the special methods and clean up the method table
   for (gsi::ClassBase::class_iterator c = gsi::ClassBase::begin_new_classes (); c != gsi::ClassBase::end_new_classes (); ++c) {
 
@@ -441,12 +467,7 @@ ClassBase::merge_declarations ()
       continue;
     }
 
-    std::set<std::pair<std::string, bool> > name_map;
-    for (gsi::ClassBase::method_iterator m = c->begin_methods (); m != c->end_methods (); ++m) {
-      for (gsi::MethodBase::synonym_iterator syn = (*m)->begin_synonyms (); syn != (*m)->end_synonyms (); ++syn) {
-        name_map.insert (std::make_pair (syn->name, (*m)->is_static ()));
-      }
-    }
+    const std::set<std::pair<std::string, bool> > &name_map = name_map_for_class (c.operator-> (), name_maps);
 
     //  We don't want the declaration object to be non-const except for this case. So
     //  we const_cast here.
@@ -535,6 +556,104 @@ ClassBase::merge_declarations ()
     //  lym::ExternalClass)
     tl_assert (! c->declaration () || c->declaration () == &*c);
   }
+}
+
+static void collect_classes (const gsi::ClassBase *cls, std::list<const gsi::ClassBase *> &unsorted_classes)
+{
+  unsorted_classes.push_back (cls);
+
+  for (tl::weak_collection<gsi::ClassBase>::const_iterator cc = cls->begin_child_classes (); cc != cls->end_child_classes (); ++cc) {
+    tl_assert (cc->declaration () != 0);
+    collect_classes (cc.operator-> (), unsorted_classes);
+  }
+}
+
+std::list<const gsi::ClassBase *>
+ClassBase::classes_in_definition_order (const char *mod_name)
+{
+  std::set<const gsi::ClassBase *> taken;
+  std::list<const gsi::ClassBase *> sorted_classes;
+
+  std::list<const gsi::ClassBase *> unsorted_classes;
+  for (gsi::ClassBase::class_iterator c = gsi::ClassBase::begin_classes (); c != gsi::ClassBase::end_classes (); ++c) {
+    if (! mod_name || c->module () == mod_name) {
+      //  only handle top-level classed from the requested modules
+      //  (children or base classes from outside the module may be part of the returned list!)
+      collect_classes (c.operator-> (), unsorted_classes);
+    } else {
+      //  we assume that these classes are taken by another run (i.e. "import x" in Python)
+      taken.insert (c.operator-> ());
+    }
+  }
+
+  while (! unsorted_classes.empty ()) {
+
+    bool any = false;
+
+    std::list<const gsi::ClassBase *> more_classes;
+
+    for (std::list<const gsi::ClassBase *>::const_iterator c = unsorted_classes.begin (); c != unsorted_classes.end (); ++c) {
+
+      //  don't handle classes twice
+      if (taken.find (*c) != taken.end ()) {
+        continue;
+      }
+
+      if ((*c)->declaration () != *c && taken.find ((*c)->declaration ()) == taken.end ()) {
+        //  can't produce this class yet - it's a reference to another class which is not produced yet.
+        tl_assert ((*c)->declaration () != 0);
+        more_classes.push_back (*c);
+        continue;
+      }
+
+      if ((*c)->parent () != 0 && taken.find ((*c)->parent ()) == taken.end ()) {
+        //  can't produce this class yet - it's a child of a parent that is not produced yet.
+        more_classes.push_back (*c);
+        continue;
+      }
+
+      if ((*c)->base () != 0 && taken.find ((*c)->base ()) == taken.end ()) {
+        //  can't produce this class yet. The base class needs to be handled first.
+        more_classes.push_back (*c);
+        continue;
+      }
+
+      sorted_classes.push_back (*c);
+      taken.insert (*c);
+      any = true;
+
+    }
+
+    if (! any && ! more_classes.empty ()) {
+
+      for (std::list<const gsi::ClassBase *>::const_iterator c = more_classes.begin (); c != more_classes.end (); ++c) {
+
+        //  don't handle classes twice
+        if (taken.find (*c) != taken.end ()) {
+          //  not considered.
+        } else if ((*c)->declaration () != *c && taken.find ((*c)->declaration ()) == taken.end ()) {
+          //  can't produce this class yet - it's a child of a parent that is not produced yet.
+          tl::error << tl::sprintf ("class %s.%s refers to another class (%s.%s) which is not available", (*c)->module (), (*c)->name (), (*c)->declaration ()->module (), (*c)->declaration ()->name ());
+        } else if ((*c)->parent () != 0 && taken.find ((*c)->parent ()) == taken.end ()) {
+          //  can't produce this class yet - it's a child of a parent that is not produced yet.
+          tl::error << tl::sprintf ("parent of class %s.%s not available (%s.%s)", (*c)->module (), (*c)->name (), (*c)->parent ()->module (), (*c)->parent ()->name ());
+        } else if ((*c)->base () != 0 && taken.find ((*c)->base ()) == taken.end ()) {
+          //  can't produce this class yet. The base class needs to be handled first.
+          tl::error << tl::sprintf ("base of class %s.%s not available (%s.%s)", (*c)->module (), (*c)->name (), (*c)->base ()->module (), (*c)->base ()->name ());
+        }
+
+      }
+
+      //  prevent infinite recursion
+      throw tl::Exception ("Internal error: infinite recursion on class building. See error log for analysis");
+
+    }
+
+    unsorted_classes.swap (more_classes);
+
+  }
+
+  return sorted_classes;
 }
 
 void

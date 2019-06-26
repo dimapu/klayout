@@ -59,12 +59,20 @@ SOURCES = \
     dbDeepRegionTests.cc \
     dbDeepShapeStoreTests.cc \
     dbHierNetworkProcessorTests.cc \
-    dbNetlistPropertyTests.cc \
     dbNetlistTests.cc \
     dbNetlistExtractorTests.cc \
     dbNetlistDeviceExtractorTests.cc \
     dbNetlistDeviceClassesTests.cc \
-    dbLayoutToNetlistTests.cc
+    dbLayoutToNetlistTests.cc \
+    dbLayoutToNetlistWriterTests.cc \
+    dbLayoutToNetlistReaderTests.cc \
+    dbNetlistWriterTests.cc \
+    dbCellVariantsTests.cc \
+    dbDeepEdgesTests.cc \
+    dbDeepEdgePairsTests.cc \
+    dbNetlistCompareTests.cc \
+    dbNetlistReaderTests.cc \
+    dbLayoutVsSchematicTests.cc
 
 INCLUDEPATH += $$TL_INC $$DB_INC $$GSI_INC
 DEPENDPATH += $$TL_INC $$DB_INC $$GSI_INC

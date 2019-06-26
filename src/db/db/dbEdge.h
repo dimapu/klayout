@@ -336,7 +336,14 @@ public:
   template <class Tr>
   edge<C> &transform (const Tr &t)
   {
-    *this = edge<C> (t * m_p1, t * m_p2);
+    if (t.is_mirror ()) {
+      //  NOTE: in case of mirroring transformations we swap p1 and p2. The reasoning is that
+      //  this way we maintain the orientation semantics: "right" of the edge is "inside" of
+      //  an area.
+      *this = edge<C> (t * m_p2, t * m_p1);
+    } else {
+      *this = edge<C> (t * m_p1, t * m_p2);
+    }
     return *this;
   }
 
@@ -353,7 +360,14 @@ public:
   template <class Tr>
   edge<typename Tr::target_coord_type> transformed (const Tr &t) const
   {
-    return edge<typename Tr::target_coord_type> (t * m_p1, t * m_p2);
+    if (t.is_mirror ()) {
+      //  NOTE: in case of mirroring transformations we swap p1 and p2. The reasoning is that
+      //  this way we maintain the orientation semantics: "right" of the edge is "inside" of
+      //  an area.
+      return edge<typename Tr::target_coord_type> (t * m_p2, t * m_p1);
+    } else {
+      return edge<typename Tr::target_coord_type> (t * m_p1, t * m_p2);
+    }
   }
 
   /**
@@ -584,7 +598,7 @@ public:
    *  @brief Conversion to a string.
    *
    *  If dbu is set, it determines the factor by which the coordinates are multiplied to render
-   *  micron units. In addition, a micron format is choosen for output of these coordinates.
+   *  micron units. In addition, a micron format is chosen for output of these coordinates.
    */
   std::string to_string (double dbu) const
   {
@@ -914,7 +928,7 @@ public:
   }
 
   /**
-   *  @brief Swap the points of the edge
+   *  @brief Swaps the points of the edge
    */
   edge<C> &swap_points () 
   {

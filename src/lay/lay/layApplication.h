@@ -183,7 +183,7 @@ public:
    *  @brief Read the configuration from a file
    *
    *  This method siletly does nothing, if the config file does not
-   *  exist. If it does and an error occured, the error message is printed
+   *  exist. If it does and an error occurred, the error message is printed
    *  on stderr. In both cases, false is returned.
    */
   bool read_config (const std::string &config_file);
@@ -332,7 +332,8 @@ private:
     layout_file,
     layout_file_with_tech,
     layout_file_with_tech_file,
-    rdb_file
+    rdb_file,
+    l2ndb_file
   };
 
   std::vector <std::pair<file_type, std::pair<std::string, std::string> > > m_files;

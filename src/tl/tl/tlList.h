@@ -28,6 +28,7 @@
 #include "tlTypeTraits.h"
 
 #include <iterator>
+#include <algorithm>
 
 namespace tl
 {
@@ -43,7 +44,7 @@ class list_node
 public:
   list_node () : mp_next (0), mp_prev (0), m_owned (true) { }
   list_node (const list_node &) : mp_next (0), mp_prev (0), m_owned (true) { }
-  list_node &operator= (const list_node &) { }
+  list_node &operator= (const list_node &) { return *this; }
 
   ~list_node ()
   {
@@ -118,7 +119,7 @@ public:
   }
 
   list_impl (const list_impl &) { tl_assert (false); }
-  list_impl &operator= (const list_impl &) { tl_assert (false); }
+  list_impl &operator= (const list_impl &) { tl_assert (false); return *this; }
 
   ~list_impl ()
   {
@@ -138,6 +139,24 @@ public:
       delete c;
     } else {
       c->unlink ();
+    }
+  }
+
+  void swap (list_impl<C, tl::false_tag> &other)
+  {
+    std::swap (m_head.mp_next, other.m_head.mp_next);
+    if (m_head.mp_next) {
+      m_head.mp_next->mp_prev = &m_head;
+    }
+    if (other.m_head.mp_next) {
+      other.m_head.mp_next->mp_prev = &other.m_head;
+    }
+    std::swap (m_back.mp_prev, other.m_back.mp_prev);
+    if (m_back.mp_prev) {
+      m_back.mp_prev->mp_next = &m_back;
+    }
+    if (other.m_back.mp_prev) {
+      other.m_back.mp_prev->mp_next = &other.m_back;
     }
   }
 
@@ -303,6 +322,7 @@ public:
   list_impl () { }
 
   list_impl (const list_impl &other)
+    : list_impl<C, tl::false_tag> ()
   {
     operator= (other);
   }
@@ -522,6 +542,6 @@ public:
   }
 };
 
-};
+}
 
 #endif

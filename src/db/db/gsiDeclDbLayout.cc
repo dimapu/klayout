@@ -887,7 +887,7 @@ Class<db::Layout> decl_Layout ("db", "Layout",
     "@args editable,manager\n"
     "\n"
     "This constructor specifies a manager object which is used to "
-    "store undo information for example. It also allows to specify whether "
+    "store undo information for example. It also allows one to specify whether "
     "the layout is editable. In editable mode, some optimisations are disabled "
     "and the layout can be manipulated through a variety of methods.\n"
     "\n"
@@ -1180,7 +1180,7 @@ Class<db::Layout> decl_Layout ("db", "Layout",
     "\n"
     "This method has been introduced in version 0.20.\n"
   ) +
-  gsi::method ("insert", (void (db::Layout::*) (db::cell_index_type, unsigned int, const db::Region &)) &db::Layout::insert,
+  gsi::method ("insert", (void (db::Layout::*) (db::cell_index_type, int, const db::Region &)) &db::Layout::insert,
     gsi::arg ("cell_index"), gsi::arg ("layer"), gsi::arg ("region"),
     "@brief Inserts a region into the given cell and layer\n"
     "If the region is (conceptionally) a flat region, it will be inserted into the cell's shapes "
@@ -1188,6 +1188,18 @@ Class<db::Layout> decl_Layout ("db", "Layout",
     "If the region is a deep (hierarchical) region, it will create a subhierarchy below the given "
     "cell and it's shapes will be put into the respective cells. Suitable subcells will be picked "
     "for inserting the shapes. If a hierarchy already exists below the given cell, the algorithm will "
+    "try to reuse this hierarchy.\n"
+    "\n"
+    "This method has been introduced in version 0.26.\n"
+  ) +
+  gsi::method ("insert", (void (db::Layout::*) (db::cell_index_type, int, const db::Edges &)) &db::Layout::insert,
+    gsi::arg ("cell_index"), gsi::arg ("layer"), gsi::arg ("edges"),
+    "@brief Inserts an edge collection into the given cell and layer\n"
+    "If the edge collection is (conceptionally) flat, it will be inserted into the cell's shapes "
+    "list as a flat sequence of edges.\n"
+    "If the edge collection is deep (hierarchical), it will create a subhierarchy below the given "
+    "cell and it's edges will be put into the respective cells. Suitable subcells will be picked "
+    "for inserting the edges. If a hierarchy already exists below the given cell, the algorithm will "
     "try to reuse this hierarchy.\n"
     "\n"
     "This method has been introduced in version 0.26.\n"
@@ -1828,7 +1840,7 @@ Class<db::Layout> decl_Layout ("db", "Layout",
     "@return The cell index of the pcell variant proxy cell\n"
     "This method will create a PCell variant proxy for a local PCell definition.\n"
     "It will create the PCell variant for the given parameters. Note that this method \n"
-    "does not allow to create PCell instances for PCell's located in a library. Use\n"
+    "does not allow one to create PCell instances for PCell's located in a library. Use\n"
     "\\add_pcell_variant with the library parameter for that purpose.\n"
     "Unlike the variant using a list of parameters, this version allows specification\n"
     "of the parameters with a key/value dictionary. The keys are the parameter names\n"
@@ -1848,7 +1860,7 @@ Class<db::Layout> decl_Layout ("db", "Layout",
     "@return The cell index of the pcell variant proxy cell\n"
     "This method will create a PCell variant proxy for a local PCell definition.\n"
     "It will create the PCell variant for the given parameters. Note that this method \n"
-    "does not allow to create PCell instances for PCell's located in a library. Use\n"
+    "does not allow one to create PCell instances for PCell's located in a library. Use\n"
     "\\add_pcell_variant with the library parameter for that purpose.\n"
     "\n"
     "The parameters are a sequence of variants which correspond to the parameters declared "
@@ -1944,7 +1956,7 @@ Class<db::Layout> decl_Layout ("db", "Layout",
     "@brief Registers a PCell declaration under the given name\n"
     "@args name, declaration\n"
     "Registers a local PCell in the current layout. If a declaration with that name\n"
-    "alreay exists, it is replaced with the new declaration.\n"
+    "already exists, it is replaced with the new declaration.\n"
     "\n"
     "This method has been introduced in version 0.22.\n"
   ) +
@@ -2159,7 +2171,7 @@ Class<db::SaveLayoutOptions> decl_SaveLayoutOptions ("db", "SaveLayoutOptions",
     "@brief Set the database unit to be used in the stream file\n"
     "@args dbu\n"
     "\n"
-    "By default, the database unit of the layout is used. This method allows to explicitly use a different\n"
+    "By default, the database unit of the layout is used. This method allows one to explicitly use a different\n"
     "database unit. A scale factor is introduced automatically which scales all layout objects accordingly so their physical dimensions remain the same. "
     "When scaling to a larger database unit or one that is not an integer fraction of the original one, rounding errors may occur and the "
     "layout may become slightly distorted."

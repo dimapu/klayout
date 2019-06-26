@@ -62,6 +62,7 @@ namespace db {
   class Layout;
   class Manager;
   class SaveLayoutOptions;
+  class LayoutToNetlist;
 }
 
 namespace lay {
@@ -295,7 +296,7 @@ public:
   /**
    *  @brief Fill the layer properties for a new layer
    *
-   *  The layer's source must be set already to allow to compute the initial color.
+   *  The layer's source must be set already to allow computing of the initial color.
    *  It is assumed that the layer is appended at the end of the layer list. This
    *  is important to set the dither pattern index accordingly.
    */
@@ -798,7 +799,7 @@ public:
    *
    *  @param fn The file to load
    *
-   *  This version allows to specify whether defaults should be used for all other layers by 
+   *  This version allows one to specify whether defaults should be used for all other layers by 
    *  setting add_default to true
    */
   void load_layer_props (const std::string &fn, bool add_default);
@@ -808,7 +809,7 @@ public:
    *
    *  @param fn The file to load
    *
-   *  This version allows to specify whether defaults should be used for all other layers by 
+   *  This version allows one to specify whether defaults should be used for all other layers by 
    *  setting add_default to true. In addition, this version will apply the .lyp definitions
    *  to a specific cellview after removing all definitions for this one. If cv_index is set
    *  to -1, the .lyp file will be applied to each cellview. In any case, the cv index specs
@@ -1366,7 +1367,7 @@ public:
    *  @brief Create a new, empty layout using the specified technology
    *
    *  The add_cellview param controls whether to create a new cellview
-   *  or clear all cellviews before. This version allows to specify whether layer properties shall be created.
+   *  or clear all cellviews before. This version allows one to specify whether layer properties shall be created.
    *
    *  @return The index of the cellview created.
    */
@@ -1378,7 +1379,7 @@ public:
    *  The add_cellview param controls whether to add the layout as a new cellview
    *  or clear all cellviews before.
    *
-   *  The "initialize_layers" parameter allows to specify whether the layer properties shall be initialized.
+   *  The "initialize_layers" parameter allows one to specify whether the layer properties shall be initialized.
    *
    *  @return The index of the cellview loaded.
    */
@@ -1451,7 +1452,7 @@ public:
    *  @brief Set the path to the current cell
    *
    *  The current cell is the one highlighted in the browser with the focus rectangle. The
-   *  cell given by the path is hightlighted and scrolled into view.
+   *  cell given by the path is highlighted and scrolled into view.
    */
   void set_current_cell_path (int cv_index, const cell_path_type &path);
   
@@ -2293,7 +2294,7 @@ public:
   void remove_rdb (unsigned int index);
 
   /**
-   *  @brief Get the number of databases
+   *  @brief Get the number of marker databases
    */
   unsigned int num_rdbs () const
   {
@@ -2306,6 +2307,61 @@ public:
    *  If marker databases are added or removed, this event is triggered.
    */
   tl::Event rdb_list_changed_event;
+
+  /**
+   *  @brief Add a Netlist database
+   *
+   *  The layout view will become owner of the database.
+   *
+   *  @param l2ndb The database to add
+   *  @return The index of the database
+   */
+  unsigned int add_l2ndb (db::LayoutToNetlist *l2ndb);
+
+  /**
+   *  @brief Get the netlist database by index
+   *
+   *  @param index The index of the database
+   *  @return A pointer to the database or 0 if the index was not valid.
+   */
+  db::LayoutToNetlist *get_l2ndb (int index);
+
+  /**
+   *  @brief Get the netlist database by index (const version)
+   *
+   *  @param index The index of the database
+   *  @return A pointer to the database or 0 if the index was not valid.
+   */
+  const db::LayoutToNetlist *get_l2ndb (int index) const;
+
+  /**
+   *  @brief Open the L2NDB browser for a given database and associated cv index
+   */
+  void open_l2ndb_browser (int l2ndb_index, int cv_index);
+
+  /**
+   *  @brief Remove the netlist database with the given index
+   *
+   *  This will release the netlist database at the given index. The list
+   *  will be reduced by that element. This means, that the following elements
+   *  will have different indicies.
+   */
+  void remove_l2ndb (unsigned int index);
+
+  /**
+   *  @brief Get the number of netlist databases
+   */
+  unsigned int num_l2ndbs () const
+  {
+    return (unsigned int) m_l2ndbs.size ();
+  }
+
+  /**
+   *  @brief An event signalling a change in the netlist database list
+   *
+   *  If netlist databases are added or removed, this event is triggered.
+   */
+  tl::Event l2ndb_list_changed_event;
 
   /**
    *  @brief Deliver a size hint (reimplementation of QWidget)
@@ -2635,6 +2691,7 @@ private:
   std::vector <std::set <cell_index_type> > m_hidden_cells;
   std::string m_title;
   tl::vector <rdb::Database *> m_rdbs;
+  tl::vector <db::LayoutToNetlist *> m_l2ndbs;
   std::string m_def_lyp_file;
   bool m_add_other_layers;
   bool m_always_show_source;

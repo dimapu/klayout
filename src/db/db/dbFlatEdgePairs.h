@@ -113,6 +113,9 @@ public:
 
   virtual const db::RecursiveShapeIterator *iter () const;
 
+  virtual void insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const;
+  virtual void insert_into_as_polygons (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer, db::Coord enl) const;
+
   void insert (const db::EdgePair &edge_pair);
   void insert (const db::Shape &shape);
 
@@ -148,14 +151,14 @@ public:
     }
   }
 
+  db::Shapes &raw_edge_pairs () { return m_edge_pairs; }
+
 protected:
   virtual Box compute_bbox () const;
   void invalidate_cache ();
 
 private:
   friend class AsIfFlatEdgePairs;
-
-  db::Shapes &raw_edge_pairs () { return m_edge_pairs; }
 
   FlatEdgePairs &operator= (const FlatEdgePairs &other);
 

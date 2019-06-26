@@ -478,9 +478,9 @@ private:
 };
    
 /**
- *  @brief A vector that maintains the order of elements but allows to reference elements in a stable way
+ *  @brief A vector that maintains the order of elements but allows one to reference elements in a stable way
  *
- *  This container allows to insert and delete elements while references to them (through iterators)
+ *  This container allows inserting and deleting of elements while references to them (through iterators)
  *  remain stable. The insert does not necessarily happen at a certain position. Instead, the vector
  *  keeps a reuseable member list (hence reuse_vector). In addition, the iterators deliver stable references
  *  by using indices and a container pointer. This way, the iterators point to the same element
@@ -888,6 +888,21 @@ public:
   }
 
   /**
+   *  @brief Returns a value indicating whether the given index is valid
+   */
+  bool is_used (size_type n) const
+  {
+    if (n >= first () && n < last ()) {
+      if (mp_rdata) {
+        return mp_rdata->is_used (n);
+      } else {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    *  @brief For diagnostics purposes only
    */
   ReuseData *reuse_data () const
@@ -906,18 +921,6 @@ private:
   {
     mp_start = mp_finish = mp_capacity = 0;
     mp_rdata = 0;
-  }
-
-  bool is_used (size_type n) const
-  {
-    if (n >= first () && n < last ()) {
-      if (mp_rdata) {
-        return mp_rdata->is_used (n);
-      } else {
-        return true;
-      }
-    }
-    return false;
   }
 
   size_type first () const

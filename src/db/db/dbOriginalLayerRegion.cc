@@ -23,8 +23,13 @@
 
 #include "dbOriginalLayerRegion.h"
 #include "dbFlatRegion.h"
+#include "dbFlatEdges.h"
 #include "dbRegion.h"
 #include "dbShapeProcessor.h"
+#include "dbDeepEdges.h"
+#include "dbDeepRegion.h"
+#include "dbDeepShapeStore.h"
+#include "tlGlobPattern.h"
 
 namespace db
 {
@@ -146,6 +151,14 @@ OriginalLayerRegion::merged_semantics_changed ()
   m_merged_polygons_valid = false;
 }
 
+void
+OriginalLayerRegion::min_coherence_changed ()
+{
+  m_is_merged = false;
+  m_merged_polygons.clear ();
+  m_merged_polygons_valid = false;
+}
+
 RegionIteratorDelegate *
 OriginalLayerRegion::begin () const
 {
@@ -246,6 +259,20 @@ OriginalLayerRegion::init ()
 }
 
 void
+OriginalLayerRegion::insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const
+{
+  db::Shapes &sh = layout->cell (into_cell).shapes (into_layer);
+
+  //  NOTE: if the source (r) is from the same layout than the shapes live in, we better
+  //  lock the layout against updates while inserting
+  db::LayoutLocker locker (layout);
+  for (db::RecursiveShapeIterator i = m_iter; !i.at_end (); ++i) {
+    tl::ident_map<db::properties_id_type> pm;
+    sh.insert (*i, i.trans (), pm);
+  }
+}
+
+void
 OriginalLayerRegion::ensure_merged_polygons_valid () const
 {
   if (! m_merged_polygons_valid) {
@@ -253,6 +280,7 @@ OriginalLayerRegion::ensure_merged_polygons_valid () const
     m_merged_polygons.clear ();
 
     db::EdgeProcessor ep (report_progress (), progress_desc ());
+    ep.set_base_verbosity (base_verbosity ());
 
     //  count edges and reserve memory
     size_t n = 0;

@@ -30,9 +30,15 @@
 #include "dbBoxTree.h"
 #include "dbCell.h"
 #include "dbInstElement.h"
+#include "tlEquivalenceClusters.h"
 
 #include <map>
 #include <set>
+#include <limits>
+
+namespace tl {
+  class RelativeProgress;
+}
 
 namespace db {
 
@@ -56,9 +62,30 @@ public:
   typedef global_nets_type::const_iterator global_nets_iterator;
 
   /**
+   *  @brief Specifies the edge connectivity mode
+   */
+  enum edge_connectivity_type
+  {
+    /**
+     *  @brief Edges connect if they are collinear
+     */
+    EdgesConnectCollinear,
+
+    /**
+     *  @brief Edges connect if the end point of one edge is the start point of the other edge
+     */
+    EdgesConnectByPoints
+  };
+
+  /**
    *  @brief Creates a connectivity object without any connections
    */
   Connectivity ();
+
+  /**
+   *  @brief Creates a connectivity object without connections and the given edge connectivity mode
+   */
+  Connectivity (edge_connectivity_type ec);
 
   /**
    *  @brief Adds intra-layer connectivity for layer l
@@ -157,6 +184,7 @@ private:
   std::map<unsigned int, layers_type> m_connected;
   std::vector<std::string> m_global_net_names;
   std::map<unsigned int, global_nets_type> m_global_connections;
+  edge_connectivity_type m_ec;
 };
 
 /**
@@ -189,6 +217,11 @@ public:
    *  @brief Clears the cluster
    */
   void clear ();
+
+  /**
+   *  @brief Returns true if the cluster is empty
+   */
+  bool empty () const;
 
   /**
    *  @brief Adds a shape with the given layer to the cluster
@@ -273,7 +306,7 @@ public:
   /**
    *  @brief Adds the given attribute to the attribute set
    *
-   *  Attributes are arbitary IDs attached to clusters.
+   *  Attributes are arbitrary IDs attached to clusters.
    *  The attribute value 0 is reserved for "no attribute" and is not
    *  put into the set.
    */
@@ -326,7 +359,7 @@ public:
 
 private:
   template <typename> friend class local_clusters;
-  template <typename> friend class interaction_receiver;
+  template <typename> friend class hnp_interaction_receiver;
 
   void set_id (id_type id)
   {
@@ -459,8 +492,13 @@ public:
    *  This method will only build the local clusters. Child cells
    *  are not taken into account. Only the shape types listed in
    *  shape_flags are taken.
+   *
+   *  If attr_equivalence is non-null, all clusters with attributes
+   *  listed as equivalent in this object are joined. Additional
+   *  cluster joining may happen in this case, because multi-attribute
+   *  assignment might create connections too.
    */
-  void build_clusters (const db::Cell &cell, db::ShapeIterator::flags_type shape_flags, const db::Connectivity &conn);
+  void build_clusters (const db::Cell &cell, db::ShapeIterator::flags_type shape_flags, const db::Connectivity &conn, const tl::equivalence_clusters<unsigned int> *attr_equivalence = 0, bool report_progress = false);
 
   /**
    *  @brief Creates and inserts a new clusters
@@ -486,22 +524,140 @@ private:
   box_type m_bbox;
   tree_type m_clusters;
   size_t m_next_dummy_id;
+
+  void apply_attr_equivalences (const tl::equivalence_clusters<unsigned int> &attr_equivalence);
+};
+
+/**
+ *  @brief The instance information for a cluster
+ */
+class DB_PUBLIC ClusterInstElement
+{
+public:
+  ClusterInstElement (const db::InstElement &ie)
+  {
+    if (ie.array_inst.at_end ()) {
+
+      m_inst_cell_index = std::numeric_limits<db::cell_index_type>::max ();
+      m_inst_trans = db::ICplxTrans ();
+      m_inst_prop_id = 0;
+
+    } else {
+
+      m_inst_cell_index = ie.inst_ptr.cell_index ();
+      m_inst_trans = ie.complex_trans ();
+      m_inst_prop_id = ie.inst_ptr.prop_id ();
+
+    }
+  }
+
+  ClusterInstElement (db::cell_index_type inst_cell_index, const db::ICplxTrans &inst_trans, db::properties_id_type inst_prop_id)
+    : m_inst_cell_index (inst_cell_index), m_inst_trans (inst_trans), m_inst_prop_id (inst_prop_id)
+  {
+    //  .. nothing yet ..
+  }
+
+  ClusterInstElement ()
+    : m_inst_cell_index (std::numeric_limits<db::cell_index_type>::max ()), m_inst_trans (), m_inst_prop_id (0)
+  {
+    //  .. nothing yet ..
+  }
+
+  /**
+   *  @brief Returns true, if the cluster does not have an instance
+   */
+  bool has_instance () const
+  {
+    return m_inst_cell_index != std::numeric_limits<db::cell_index_type>::max ();
+  }
+
+  /**
+   *  @brief Gets the cell index of the cell which is instantiated
+   */
+  db::cell_index_type inst_cell_index () const
+  {
+    return m_inst_cell_index;
+  }
+
+  /**
+   *  @brief Gets the instance transformation
+   */
+  const db::ICplxTrans &inst_trans () const
+  {
+    return m_inst_trans;
+  }
+
+  /**
+   *  @brief Gets the instance properties id
+   */
+  db::properties_id_type inst_prop_id () const
+  {
+    return m_inst_prop_id;
+  }
+
+  /**
+   *  @brief Equality
+   */
+  bool operator== (const ClusterInstElement &other) const
+  {
+    return m_inst_cell_index == other.m_inst_cell_index && m_inst_trans == other.m_inst_trans && m_inst_prop_id == other.m_inst_prop_id;
+  }
+
+  /**
+   *  @brief Inequality
+   */
+  bool operator!= (const ClusterInstElement &other) const
+  {
+    return ! operator== (other);
+  }
+
+  /**
+   *  @brief Less operator
+   */
+  bool operator< (const ClusterInstElement &other) const
+  {
+    if (m_inst_cell_index != other.m_inst_cell_index) {
+      return m_inst_cell_index < other.m_inst_cell_index;
+    }
+    if (m_inst_trans != other.m_inst_trans) {
+      return m_inst_trans < other.m_inst_trans;
+    }
+    return m_inst_prop_id < other.m_inst_prop_id;
+  }
+
+private:
+  db::cell_index_type m_inst_cell_index;
+  db::ICplxTrans m_inst_trans;
+  db::properties_id_type m_inst_prop_id;
 };
 
 /**
  *  @brief A connection to a cluster in a child instance
  */
 class DB_PUBLIC ClusterInstance
+  : public ClusterInstElement
 {
 public:
-  ClusterInstance (size_t id, const db::InstElement &inst)
-    : m_id (id), m_inst (inst)
+  ClusterInstance (size_t id, db::cell_index_type inst_cell_index, const db::ICplxTrans &inst_trans, db::properties_id_type inst_prop_id)
+    : ClusterInstElement (inst_cell_index, inst_trans, inst_prop_id), m_id (id)
+  {
+    //  .. nothing yet ..
+  }
+
+  ClusterInstance (size_t id, const db::InstElement &inst_element)
+    : ClusterInstElement (inst_element), m_id (id)
+  {
+    //  .. nothing yet ..
+  }
+
+  ClusterInstance (size_t id)
+    : ClusterInstElement (), m_id (id)
   {
     //  .. nothing yet ..
   }
 
   ClusterInstance ()
-    : m_id (0), m_inst ()
+    : ClusterInstElement (), m_id (0)
   {
     //  .. nothing yet ..
   }
@@ -515,19 +671,11 @@ public:
   }
 
   /**
-   *  @brief Gets the instance path
-   */
-  const db::InstElement &inst () const
-  {
-    return m_inst;
-  }
-
-  /**
    *  @brief Equality
    */
   bool operator== (const ClusterInstance &other) const
   {
-    return m_id == other.m_id && m_inst == other.m_inst;
+    return m_id == other.m_id && ClusterInstElement::operator== (other);
   }
 
   /**
@@ -546,12 +694,11 @@ public:
     if (m_id != other.m_id) {
       return m_id < other.m_id;
     }
-    return m_inst < other.m_inst;
+    return ClusterInstElement::operator< (other);
   }
 
 private:
   size_t m_id;
-  db::InstElement m_inst;
 };
 
 template <class T> class hier_clusters;
@@ -714,21 +861,6 @@ private:
   std::set<id_type> m_connected_clusters;
 };
 
-template <class T>
-connected_clusters_iterator<T>::connected_clusters_iterator (const connected_clusters<T> &c)
-  : m_lc_iter (c.begin ())
-{
-  size_t max_id = 0;
-  for (typename connected_clusters<T>::const_iterator i = c.begin (); i != c.end (); ++i) {
-    if (i->id () > max_id) {
-      max_id = i->id ();
-    }
-  }
-
-  m_x_iter = c.m_connections.lower_bound (max_id + 1);
-  m_x_iter_end = c.m_connections.end ();
-}
-
 template <typename> class cell_clusters_box_converter;
 
 /**
@@ -749,9 +881,17 @@ public:
   hier_clusters ();
 
   /**
+   *  @brief Sets the base verbosity
+   *
+   *  The default value is 30. Basic timing will be reported for > base_verbosity, detailed timing
+   *  for > base_verbosity + 10.
+   */
+  void set_base_verbosity (int bv);
+
+  /**
    *  @brief Builds a hierarchy of clusters from a cell hierarchy and given connectivity
    */
-  void build (const db::Layout &layout, const db::Cell &cell, db::ShapeIterator::flags_type shape_flags, const db::Connectivity &conn);
+  void build (const db::Layout &layout, const db::Cell &cell, db::ShapeIterator::flags_type shape_flags, const db::Connectivity &conn, const tl::equivalence_clusters<unsigned int> *attr_equivalence = 0);
 
   /**
    *  @brief Gets the connected clusters for a given cell
@@ -786,15 +926,16 @@ public:
    *  Cluster connections can only cross one level of hierarchy. This method
    *  creates necessary dummy entries for the given path.
    */
-  ClusterInstance make_path (const db::Layout &layout, const db::Cell &cell, size_t id, const std::vector<db::InstElement> &path);
+  ClusterInstance make_path (const db::Layout &layout, const db::Cell &cell, size_t id, const std::vector<ClusterInstElement> &path);
 
 private:
-  void build_local_cluster (const db::Layout &layout, const db::Cell &cell, db::ShapeIterator::flags_type shape_flags, const db::Connectivity &conn);
+  void build_local_cluster (const db::Layout &layout, const db::Cell &cell, db::ShapeIterator::flags_type shape_flags, const db::Connectivity &conn, const tl::equivalence_clusters<unsigned int> *attr_equivalence);
   void build_hier_connections (cell_clusters_box_converter<T> &cbc, const db::Layout &layout, const db::Cell &cell, const db::Connectivity &conn);
-  void build_hier_connections_for_cells (cell_clusters_box_converter<T> &cbc, const db::Layout &layout, const std::vector<db::cell_index_type> &cells, const db::Connectivity &conn);
-  void do_build (cell_clusters_box_converter<T> &cbc, const db::Layout &layout, const db::Cell &cell, db::ShapeIterator::flags_type shape_flags, const db::Connectivity &conn);
+  void build_hier_connections_for_cells (cell_clusters_box_converter<T> &cbc, const db::Layout &layout, const std::vector<db::cell_index_type> &cells, const db::Connectivity &conn, tl::RelativeProgress &progress);
+  void do_build (cell_clusters_box_converter<T> &cbc, const db::Layout &layout, const db::Cell &cell, db::ShapeIterator::flags_type shape_flags, const db::Connectivity &conn, const tl::equivalence_clusters<unsigned int> *attr_equivalence = 0);
 
   std::map<db::cell_index_type, connected_clusters<T> > m_per_cell_clusters;
+  int m_base_verbosity;
 };
 
 /**
@@ -881,6 +1022,11 @@ public:
    *  @brief Increment operator
    */
   recursive_cluster_shape_iterator &operator++ ();
+
+  /**
+   *  @brief Skips the current cell and advances to the next cell and shape
+   */
+  void skip_cell ();
 
 private:
   typedef typename db::connected_clusters<T>::connections_type connections_type;
@@ -971,7 +1117,7 @@ private:
 class DB_PUBLIC IncomingClusterInstance
 {
 public:
-  IncomingClusterInstance (db::cell_index_type pc, size_t parent_cluster_id, const db::InstElement &inst)
+  IncomingClusterInstance (db::cell_index_type pc, size_t parent_cluster_id, const ClusterInstance &inst)
     : m_parent_cell (pc), m_parent_cluster_id (parent_cluster_id), m_inst (inst)
   {
     //  .. nothing yet ..
@@ -1003,7 +1149,7 @@ public:
   /**
    *  @brief Gets the instance path
    */
-  const db::InstElement &inst () const
+  const ClusterInstance &inst () const
   {
     return m_inst;
   }
@@ -1033,7 +1179,7 @@ public:
 private:
   db::cell_index_type m_parent_cell;
   size_t m_parent_cluster_id;
-  db::InstElement m_inst;
+  ClusterInstance m_inst;
 };
 
 /**

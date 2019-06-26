@@ -26,6 +26,7 @@
 #include "dbCommon.h"
 #include "dbEdgesDelegate.h"
 #include "dbRecursiveShapeIterator.h"
+#include "dbCellVariants.h"
 
 #include "gsiObject.h"
 
@@ -36,6 +37,7 @@ namespace db {
 class EdgeFilterBase;
 class FlatEdges;
 class EmptyEdges;
+class DeepShapeStore;
 
 /**
  *  @brief An edge set iterator
@@ -199,136 +201,6 @@ private:
 class Edges;
 
 /**
- *  @brief A base class for edge filters
- */
-class DB_PUBLIC EdgeFilterBase
-{
-public:
-  EdgeFilterBase () { }
-  virtual ~EdgeFilterBase () { }
-
-  virtual bool selected (const db::Edge &edge) const = 0;
-};
-
-/**
- *  @brief An edge length filter for use with Edges::filter or Edges::filtered
- *
- *  This filter has two parameters: lmin and lmax.
- *  It will filter all edges for which the length is >= lmin and < lmax.
- *  There is an "invert" flag which allows to select all edges not
- *  matching the criterion.
- */
-
-struct DB_PUBLIC EdgeLengthFilter
-  : public EdgeFilterBase
-{
-  typedef db::Edge::distance_type length_type;
-
-  /**
-   *  @brief Constructor 
-   *
-   *  @param lmin The minimum length
-   *  @param lmax The maximum length
-   *  @param inverse If set to true, only polygons not matching this criterion will be filtered
-   */
-  EdgeLengthFilter (length_type lmin, length_type lmax, bool inverse)
-    : m_lmin (lmin), m_lmax (lmax), m_inverse (inverse)
-  {
-    //  .. nothing yet ..
-  }
-
-  /**
-   *  @brief Returns true if the edge length matches the criterion
-   */
-  bool selected (const db::Edge &edge) const
-  {
-    length_type l = edge.length ();
-    if (! m_inverse) {
-      return l >= m_lmin && l < m_lmax;
-    } else {
-      return ! (l >= m_lmin && l < m_lmax);
-    }
-  }
-
-private:
-  length_type m_lmin, m_lmax;
-  bool m_inverse;
-};
-
-/**
- *  @brief An edge orientation filter for use with Edges::filter or Edges::filtered
- *
- *  This filter has two parameters: amin and amax.
- *  It will filter all edges for which the orientation angle is >= amin and < amax.
- *  The orientation angle is measured in degree against the x axis in the mathematical sense.
- *  There is an "invert" flag which allows to select all edges not
- *  matching the criterion.
- */
-
-struct DB_PUBLIC EdgeOrientationFilter
-  : public EdgeFilterBase
-{
-  /**
-   *  @brief Constructor 
-   *
-   *  @param amin The minimum angle (measured against the x axis)
-   *  @param amax The maximum angle (measured against the x axis)
-   *  @param inverse If set to true, only polygons not matching this criterion will be filtered
-   *
-   *  This filter will filter out all edges whose angle against x axis 
-   *  is larger or equal to amin and less than amax.
-   */
-  EdgeOrientationFilter (double amin, double amax, bool inverse)
-    : m_inverse (inverse), m_exact (false)
-  {
-    m_emin = db::DVector (cos (amin * M_PI / 180.0), sin (amin * M_PI / 180.0));
-    m_emax = db::DVector (cos (amax * M_PI / 180.0), sin (amax * M_PI / 180.0));
-  }
-
-  /**
-   *  @brief Constructor 
-   *
-   *  @param a The angle (measured against the x axis)
-   *  @param inverse If set to true, only polygons not matching this criterion will be filtered
-   *
-   *  This filter will filter out all edges whose angle against x axis 
-   *  is equal to a.
-   */
-  EdgeOrientationFilter (double a, bool inverse)
-    : m_inverse (inverse), m_exact (true)
-  {
-    m_emin = db::DVector (cos (a * M_PI / 180.0), sin (a * M_PI / 180.0));
-  }
-
-  /**
-   *  @brief Returns true if the edge orientation matches the criterion
-   */
-  bool selected (const db::Edge &edge) const
-  {
-    int smin = db::vprod_sign (m_emin, db::DVector (edge.d ()));
-    if (m_exact) {
-      if (! m_inverse) {
-        return smin == 0;
-      } else {
-        return smin != 0;
-      }
-    } else {
-      int smax = db::vprod_sign (m_emax, db::DVector (edge.d ()));
-      if (! m_inverse) {
-        return (smin >= 0 && smax < 0) || (smax > 0 && smin <= 0);
-      } else {
-        return ! ((smin >= 0 && smax < 0) || (smax > 0 && smin <= 0));
-      }
-    }
-  }
-
-private:
-  db::DVector m_emin, m_emax;
-  bool m_inverse;
-  bool m_exact;
-};
-
-/**
  *  @brief An edge set
  *
  *  An edge set is basically a collection of edges. They do not necessarily need to form closed contours. 
@@ -386,12 +258,55 @@ public:
   Edges &operator= (const Edges &other);
 
   /**
-   *  @brief Constructor from an object
+   *  @brief Constructor from a box
    *
-   *  Creates an edge set representing a single instance of that object
+   *  Creates an edge set representing the contour of the box
    */
-  template <class Sh>
-  Edges (const Sh &s)
+  explicit Edges (const db::Box &s)
+    : mp_delegate (0)
+  {
+    insert (s);
+  }
+
+  /**
+   *  @brief Constructor from a simple polygon
+   *
+   *  Creates an edge set representing the contour of the polygon
+   */
+  explicit Edges (const db::SimplePolygon &s)
+    : mp_delegate (0)
+  {
+    insert (s);
+  }
+
+  /**
+   *  @brief Constructor from a polygon
+   *
+   *  Creates an edge set representing the contour of the polygon
+   */
+  explicit Edges (const db::Polygon &s)
+    : mp_delegate (0)
+  {
+    insert (s);
+  }
+
+  /**
+   *  @brief Constructor from a path
+   *
+   *  Creates an edge set representing the contour of the path
+   */
+  explicit Edges (const db::Path &s)
+    : mp_delegate (0)
+  {
+    insert (s);
+  }
+
+  /**
+   *  @brief Constructor from an edge
+   *
+   *  Creates an edge set representing the single edge
+   */
+  explicit Edges (const db::Edge &s)
     : mp_delegate (0)
   {
     insert (s);
@@ -405,7 +320,7 @@ public:
    *  style.
    */
   template <class Iter>
-  Edges (const Iter &b, const Iter &e)
+  explicit Edges (const Iter &b, const Iter &e)
     : mp_delegate (0)
   {
     reserve (e - b);
@@ -417,19 +332,32 @@ public:
   /**
    *  @brief Constructor from a RecursiveShapeIterator
    *
-   *  Creates an edge set from a recursive shape iterator. This allows to feed an edge set
+   *  Creates an edge set from a recursive shape iterator. This allows feeding an edge set
    *  from a hierarchy of cells.
    */
-  Edges (const RecursiveShapeIterator &si, bool as_edges = true);
+  explicit Edges (const RecursiveShapeIterator &si, bool as_edges = true);
 
   /**
    *  @brief Constructor from a RecursiveShapeIterator with a transformation
    *
-   *  Creates an edge set from a recursive shape iterator. This allows to feed an edge set 
+   *  Creates an edge set from a recursive shape iterator. This allows feeding an edge set
    *  from a hierarchy of cells. The transformation is useful to scale to a specific
    *  DBU for example.
    */
-  Edges (const RecursiveShapeIterator &si, const db::ICplxTrans &trans, bool as_edges = true, bool merged_semantics = true);
+  explicit Edges (const RecursiveShapeIterator &si, const db::ICplxTrans &trans, bool as_edges = true, bool merged_semantics = true);
+
+  /**
+   *  @brief Constructor from a RecursiveShapeIterator providing a deep representation
+   *
+   *  This version will create a hierarchical edge collection. The DeepShapeStore needs to be provided
+   *  during the lifetime of the collection and acts as a heap for optimized data.
+   */
+  explicit Edges (const RecursiveShapeIterator &si, DeepShapeStore &dss, bool as_edges = true);
+
+  /**
+   *  @brief Constructor from a RecursiveShapeIterator providing a deep representation with transformation
+   */
+  explicit Edges (const RecursiveShapeIterator &si, DeepShapeStore &dss, const db::ICplxTrans &trans, bool as_edges = true, bool merged_semantics = true);
 
   /**
    *  @brief Gets the underlying delegate object
@@ -437,6 +365,26 @@ public:
   EdgesDelegate *delegate () const
   {
     return mp_delegate;
+  }
+
+  /**
+   *  @brief Sets the base verbosity
+   *
+   *  Setting this value will make timing measurements appear at least at
+   *  the given verbosity level and more detailed timing at the given level
+   *  plus 10. The default level is 30.
+   */
+  void set_base_verbosity (int vb)
+  {
+    mp_delegate->set_base_verbosity (vb);
+  }
+
+  /**
+   *  @brief Gets the base verbosity
+   */
+  unsigned int base_verbosity () const
+  {
+    return mp_delegate->base_verbosity ();
   }
 
   /**
@@ -643,6 +591,64 @@ public:
   }
 
   /**
+   *  @brief Processes the (merged) edges
+   *
+   *  This method will keep all edges which the processor returns.
+   *  The processing filter can apply modifications too. These modifications will be
+   *  kept in the output edge collection.
+   *
+   *  Merged semantics applies. In merged semantics, the filter will run over
+   *  all merged edges.
+   */
+  Edges &process (const EdgeProcessorBase &filter)
+  {
+    set_delegate (mp_delegate->process_in_place (filter));
+    return *this;
+  }
+
+  /**
+   *  @brief Returns the processed edges
+   *
+   *  This method will keep all edges which the processor returns.
+   *  The processing filter can apply modifications too. These modifications will be
+   *  kept in the output edge collection.
+   *
+   *  Merged semantics applies. In merged semantics, the filter will run over
+   *  all merged edges.
+   *
+   *  This method will return a new edge collection with the modified and filtered edges.
+   */
+  Edges processed (const EdgeProcessorBase &filter) const
+  {
+    return Edges (mp_delegate->processed (filter));
+  }
+
+  /**
+   *  @brief Processes the edges into polygons
+   *
+   *  This method will run the processor over all edges and return a region
+   *  with the outputs of the processor.
+   *
+   *  Merged semantics applies. In merged semantics, the filter will run over
+   *  all merged edges.
+   */
+  void processed (Region &output, const EdgeToPolygonProcessorBase &filter) const;
+
+  /**
+   *  @brief Processes the edges into edge pairs
+   *
+   *  This method will run the processor over all edges and return an edge pair collection
+   *  with the outputs of the processor.
+   *
+   *  Merged semantics applies. In merged semantics, the filter will run over
+   *  all merged edges.
+   */
+  EdgePairs processed (const EdgeToEdgePairProcessorBase &filter) const
+  {
+    return EdgePairs (mp_delegate->processed_to_edge_pairs (filter));
+  }
+
+  /**
    *  @brief Applies a width check and returns EdgePairs which correspond to violation markers
    *
    *  The width check will create a edge pairs if the width of the area between the 
@@ -669,7 +675,7 @@ public:
    */
   EdgePairs width_check (db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->width_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->width_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -684,7 +690,7 @@ public:
    */
   EdgePairs space_check (db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->space_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->space_check (d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -702,7 +708,7 @@ public:
    */
   EdgePairs enclosing_check (const Edges &other, db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->enclosing_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->enclosing_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -720,7 +726,7 @@ public:
    */
   EdgePairs overlap_check (const Edges &other, db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->overlap_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->overlap_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -738,7 +744,7 @@ public:
    */
   EdgePairs separation_check (const Edges &other, db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->separation_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->separation_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -756,7 +762,7 @@ public:
    */
   EdgePairs inside_check (const Edges &other, db::Coord d, bool whole_edges = false, metrics_type metrics = db::Euclidian, double ignore_angle = 90, distance_type min_projection = 0, distance_type max_projection = std::numeric_limits<distance_type>::max ()) const
   {
-    return mp_delegate->inside_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection);
+    return EdgePairs (mp_delegate->inside_check (other, d, whole_edges, metrics, ignore_angle, min_projection, max_projection));
   }
 
   /**
@@ -970,7 +976,7 @@ public:
   /**
    *  @brief Returns edges (point-like) representing the start part of the edges
    *
-   *  The length of the part can be choosen by length or a fraction of the original length.
+   *  The length of the part can be chosen by length or a fraction of the original length.
    *  If length and fraction are 0, a point at the beginning of the edge will be created.
    *  If length is non-zero and fraction is 0, a segment in the direction of the edge
    *  with the given length is created, even if the length is larger than the original
@@ -986,10 +992,7 @@ public:
    *
    *  Merged semantics applies.
    */
-  Edges start_segments (length_type length, double fraction) const
-  {
-    return Edges (mp_delegate->start_segments (length, fraction));
-  }
+  Edges start_segments (length_type length, double fraction) const;
 
   /**
    *  @brief Returns edges (point-like) representing the end part of the edges
@@ -999,10 +1002,7 @@ public:
    *
    *  Merged semantics applies.
    */
-  Edges end_segments (length_type length, double fraction) const
-  {
-    return Edges (mp_delegate->end_segments (length, fraction));
-  }
+  Edges end_segments (length_type length, double fraction) const;
 
   /**
    *  @brief Returns edges (point-like) representing the center of the edges
@@ -1012,10 +1012,7 @@ public:
    *
    *  Merged semantics applies.
    */
-  Edges centers (length_type length, double fraction) const
-  {
-    return Edges (mp_delegate->centers (length, fraction));
-  }
+  Edges centers (length_type length, double fraction) const;
 
   /**
    *  @brief Select the edges inside the given region
@@ -1263,12 +1260,22 @@ public:
     return mp_delegate->less (other);
   }
 
+  /**
+   *  @brief Inserts the edge collection into the given layout, cell and layer
+   *  If the edge collection is a hierarchical region, the hierarchy is copied into the
+   *  layout's hierarchy.
+   */
+  void insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const
+  {
+    return mp_delegate->insert_into (layout, into_cell, into_layer);
+  }
+
 private:
   friend class EdgePairs;
 
   EdgesDelegate *mp_delegate;
 
-  void set_delegate (EdgesDelegate *delegate);
+  void set_delegate (EdgesDelegate *delegate, bool keep_attributes = true);
   FlatEdges *flat_edges ();
 };
 

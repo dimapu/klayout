@@ -68,6 +68,9 @@ public:
   virtual bool equals (const EdgePairs &other) const;
   virtual bool less (const EdgePairs &other) const;
 
+  virtual void insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const;
+  virtual void insert_into_as_polygons (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer, db::Coord enl) const;
+
 protected:
   void update_bbox (const db::Box &box);
   void invalidate_bbox ();

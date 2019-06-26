@@ -30,6 +30,10 @@
 
 namespace db {
 
+class EdgesDelegate;
+class RegionDelegate;
+class DeepShapeStore;
+
 /**
  *  @brief An original layerregion based on a RecursiveShapeIterator
  */
@@ -64,8 +68,11 @@ public:
   virtual bool equals (const Region &other) const;
   virtual bool less (const Region &other) const;
 
+  virtual void insert_into (Layout *layout, db::cell_index_type into_cell, unsigned int into_layer) const;
+
 protected:
   virtual void merged_semantics_changed ();
+  virtual void min_coherence_changed ();
 
 private:
   OriginalLayerRegion &operator= (const OriginalLayerRegion &other);

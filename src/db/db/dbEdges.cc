@@ -21,6 +21,7 @@
 */
 
 #include "dbEdges.h"
+#include "dbDeepEdges.h"
 #include "dbOriginalLayerEdges.h"
 #include "dbEmptyEdges.h"
 #include "dbFlatEdges.h"
@@ -28,6 +29,57 @@
 
 namespace db
 {
+
+namespace
+{
+
+// -------------------------------------------------------------------------------------------------------------
+//  Smoothing processor
+
+class EdgeSegmentSelector
+  : public EdgeProcessorBase
+{
+public:
+  EdgeSegmentSelector (int mode, db::Edges::length_type length, double fraction)
+    : m_mode (mode), m_length (length), m_fraction (fraction)
+  { }
+
+  virtual void process (const db::Edge &edge, std::vector<db::Edge> &res) const
+  {
+    double l = std::max (edge.double_length () * m_fraction, double (m_length));
+
+    if (m_mode < 0) {
+
+      res.push_back (db::Edge (edge.p1 (), db::Point (db::DPoint (edge.p1 ()) + db::DVector (edge.d ()) * (l / edge.double_length ()))));
+
+    } else if (m_mode > 0) {
+
+      res.push_back (db::Edge (db::Point (db::DPoint (edge.p2 ()) - db::DVector (edge.d ()) * (l / edge.double_length ())), edge.p2 ()));
+
+    } else {
+
+      db::DVector dl = db::DVector (edge.d ()) * (0.5 * l / edge.double_length ());
+      db::DPoint center = db::DPoint (edge.p1 ()) + db::DVector (edge.p2 () - edge.p1 ()) * 0.5;
+
+      res.push_back (db::Edge (db::Point (center - dl), db::Point (center + dl)));
+
+    }
+  }
+
+  virtual const TransformationReducer *vars () const { return &m_vars; }
+  virtual bool result_is_merged () const { return false; }
+  virtual bool requires_raw_input () const { return false; }
+  virtual bool result_must_not_be_merged () const { return m_length <= 0; }
+  virtual bool wants_variants () const { return true; }
+
+private:
+  int m_mode;
+  db::Edges::length_type m_length;
+  double m_fraction;
+  db::MagnificationReducer m_vars;
+};
+
+}
 
 // -------------------------------------------------------------------------------------------------------------
 //  Edges implementation
@@ -45,7 +97,7 @@ Edges::Edges (EdgesDelegate *delegate)
 }
 
 Edges::Edges (const Edges &other)
-  : mp_delegate (other.mp_delegate->clone ())
+  : gsi::ObjectBase (), mp_delegate (other.mp_delegate->clone ())
 {
   //  .. nothing yet ..
 }
@@ -59,7 +111,7 @@ Edges::~Edges ()
 Edges &Edges::operator= (const Edges &other)
 {
   if (this != &other) {
-    set_delegate (other.mp_delegate->clone ());
+    set_delegate (other.mp_delegate->clone (), false);
   }
   return *this;
 }
@@ -91,6 +143,16 @@ Edges::Edges (const RecursiveShapeIterator &si, const db::ICplxTrans &trans, boo
   }
 }
 
+Edges::Edges (const RecursiveShapeIterator &si, DeepShapeStore &dss, bool as_edges)
+{
+  mp_delegate = new DeepEdges (si, dss, as_edges);
+}
+
+Edges::Edges (const RecursiveShapeIterator &si, DeepShapeStore &dss, const db::ICplxTrans &trans, bool as_edges, bool merged_semantics)
+{
+  mp_delegate = new DeepEdges (si, dss, trans, as_edges, merged_semantics);
+}
+
 const db::RecursiveShapeIterator &
 Edges::iter () const
 {
@@ -100,9 +162,13 @@ Edges::iter () const
 }
 
 void
-Edges::set_delegate (EdgesDelegate *delegate)
+Edges::set_delegate (EdgesDelegate *delegate, bool keep_attributes)
 {
   if (delegate != mp_delegate) {
+    if (keep_attributes && mp_delegate && delegate) {
+      //  copy attributes (threads, min_coherence etc.) from old to new
+      *delegate = *mp_delegate;
+    }
     delete mp_delegate;
     mp_delegate = delegate;
   }
@@ -120,9 +186,29 @@ Edges::reserve (size_t n)
   flat_edges ()->reserve (n);
 }
 
+void Edges::processed (Region &output, const EdgeToPolygonProcessorBase &filter) const
+{
+  output.set_delegate (mp_delegate->processed_to_polygons (filter));
+}
+
 void Edges::extended (Region &output, coord_type ext_b, coord_type ext_e, coord_type ext_o, coord_type ext_i, bool join) const
 {
   output.set_delegate (mp_delegate->extended (ext_b, ext_e, ext_o, ext_i, join));
+}
+
+Edges Edges::start_segments (length_type length, double fraction) const
+{
+  return Edges (mp_delegate->processed (EdgeSegmentSelector (-1, length, fraction)));
+}
+
+Edges Edges::end_segments (length_type length, double fraction) const
+{
+  return Edges (mp_delegate->processed (EdgeSegmentSelector (1, length, fraction)));
+}
+
+Edges Edges::centers (length_type length, double fraction) const
+{
+  return Edges (mp_delegate->processed (EdgeSegmentSelector (0, length, fraction)));
 }
 
 template <class T>
@@ -133,9 +219,9 @@ Edges &Edges::transform (const T &trans)
 }
 
 //  explicit instantiations
-template Edges &Edges::transform (const db::ICplxTrans &);
-template Edges &Edges::transform (const db::Trans &);
-template Edges &Edges::transform (const db::Disp &);
+template DB_PUBLIC Edges &Edges::transform (const db::ICplxTrans &);
+template DB_PUBLIC Edges &Edges::transform (const db::Trans &);
+template DB_PUBLIC Edges &Edges::transform (const db::Disp &);
 
 template <class Sh>
 void Edges::insert (const Sh &shape)
@@ -143,11 +229,11 @@ void Edges::insert (const Sh &shape)
   flat_edges ()->insert (shape);
 }
 
-template void Edges::insert (const db::Box &);
-template void Edges::insert (const db::SimplePolygon &);
-template void Edges::insert (const db::Polygon &);
-template void Edges::insert (const db::Path &);
-template void Edges::insert (const db::Edge &);
+template DB_PUBLIC void Edges::insert (const db::Box &);
+template DB_PUBLIC void Edges::insert (const db::SimplePolygon &);
+template DB_PUBLIC void Edges::insert (const db::Polygon &);
+template DB_PUBLIC void Edges::insert (const db::Path &);
+template DB_PUBLIC void Edges::insert (const db::Edge &);
 
 void Edges::insert (const db::Shape &shape)
 {
@@ -160,9 +246,9 @@ void Edges::insert (const db::Shape &shape, const T &trans)
   flat_edges ()->insert (shape, trans);
 }
 
-template void Edges::insert (const db::Shape &, const db::ICplxTrans &);
-template void Edges::insert (const db::Shape &, const db::Trans &);
-template void Edges::insert (const db::Shape &, const db::Disp &);
+template DB_PUBLIC void Edges::insert (const db::Shape &, const db::ICplxTrans &);
+template DB_PUBLIC void Edges::insert (const db::Shape &, const db::Trans &);
+template DB_PUBLIC void Edges::insert (const db::Shape &, const db::Disp &);
 
 FlatEdges *
 Edges::flat_edges ()
